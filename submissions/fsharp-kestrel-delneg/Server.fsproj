@@ -15,6 +15,14 @@
     <TieredPGO>true</TieredPGO>
     <EnableDefaultContentItems>false</EnableDefaultContentItems>
   </PropertyGroup>
+  <!-- Transport.fs: struct epoll_event is packed (12 bytes) on x86-64 but not on aarch64 (16 bytes). Pick the
+       layout from the target RID (build.sh passes the current one), else the SDK's own. Any other RID keeps the
+       x86-64 source unchanged, and Transport.supported turns the transport off where the layout does not fit. -->
+  <PropertyGroup>
+    <EpollRid>$(RuntimeIdentifier)</EpollRid>
+    <EpollRid Condition="'$(EpollRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</EpollRid>
+    <DefineConstants Condition="$(EpollRid.EndsWith('-arm64'))">$(DefineConstants);EPOLL_ARM64</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="Sqlite.fs" />
     <Compile Include="Db.fs" />

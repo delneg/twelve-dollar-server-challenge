@@ -2,7 +2,8 @@
 /// a readable socket gets exactly one recv into the loop's buffer, the HTTP handler (`Conn.direct`) answers every
 /// complete request in it, and the responses go out with one send. No pipes and no task per request.
 /// Compared with Kestrel's socket transport, this saves the speculative read that ends in EAGAIN after every
-/// request. Idea: #74 (own epoll loop), here kept inside Kestrel as its transport. x86-64 Linux only.
+/// request. Idea: #74 (own epoll loop), here kept inside Kestrel as its transport. Linux on x86-64 or aarch64
+/// (the build picks the epoll_event layout, see EPOLL_ARM64 in Server.fsproj).
 module Transport
 
 #nowarn "9"
@@ -22,8 +23,13 @@ open Microsoft.AspNetCore.Connections
 open Microsoft.AspNetCore.Http.Features
 open Microsoft.FSharp.NativeInterop
 
+#if EPOLL_ARM64
+/// struct epoll_event on aarch64: not packed, so 16 bytes with the data at offset 8.
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+#else
 /// struct epoll_event, packed on x86-64: 12 bytes.
 [<Struct; StructLayout(LayoutKind.Sequential, Pack = 4)>]
+#endif
 type EpollEvent =
     val mutable Events: uint32
     val mutable Data: uint64
@@ -85,10 +91,17 @@ let private EAGAIN = 11
 let private EINTR = 4
 let private MSG_NOSIGNAL = 0x4000
 
+#if EPOLL_ARM64
+/// True where this transport works: aarch64 Linux, with the epoll_event layout above.
+let supported =
+    OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture = Architecture.Arm64
+    && Marshal.SizeOf<EpollEvent>() = 16 && Marshal.OffsetOf<EpollEvent>("Data") = 8n
+#else
 /// True where this transport works: x86-64 Linux (the epoll_event layout above).
 let supported =
     OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture = Architecture.X64
     && Marshal.SizeOf<EpollEvent>() = 12
+#endif
 
 let private errno () = Marshal.GetLastPInvokeError()
 
