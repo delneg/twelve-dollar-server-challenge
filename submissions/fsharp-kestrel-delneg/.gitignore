@@ -2,3 +2,8 @@ bin/
 obj/
 out/
 native/
+.idea/
+.junie/
+.vs/
+*.user
+*.DotSettings.user

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <AssemblyName>Server</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -25,6 +25,6 @@
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.0.100" />
+    <PackageReference Update="FSharp.Core" Version="11.0.101-rc2.26504.105" />
   </ItemGroup>
 </Project>
