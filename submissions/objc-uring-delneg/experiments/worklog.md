@@ -413,3 +413,13 @@ E77 v14 150 at 330k: stopped early, void, and counted anyway.
 | v13 225 | 310k | 32,728 | 5.7 | 53 | 425 | 704 | pass, 17.32 us/req |
 
 v13 with 225 becomes the default. v14 dropped. At 320k reclaim starts near the end of a hold (scanK 370k and majf 6k per 44 s in the v14 150 run), so the memory wall is still close there.
+
+## E80 and the scorer's result (5 Nov)
+
+E80, head `2b4d6d8` (v15), 320k, 5 min: rps 32,676, p50 25, p95 1,135, p99 1,260, max 1,540. Fail. So v13 at 225 and 320k is one rep on the limit (500/905) and one clear fail. The 80 experiments are used up.
+
+**Scorer on `197ad57` (arjaythedev on #326, 19:38Z):** held 280,000, 26,714 req/s, p95 189.9, p99 348.5, 0 errors, 79 % CPU, 27 us/req, 807 MB peak (was 1,245). Probes: 240k and 280k pass; 290k fails on p99 (1.05 s at 84 % CPU, 0 errors); 300k fails on p99 (2.33 s at 84 % CPU); 320k CPU-bound (97 %). Review clean, PCACHE2 and newest-first accepted. Tied the merged row, so not merged; the PR stays open and a version that beats 280,000 gets a re-run.
+
+What that says about this harness: its OOM story held (memory down, no refusals, 0 errors at 290k and 300k), but it's too kind on tails. It passed that build at 310k twice, while the scorer fails it on p99 at 290k with CPU at 84 %, so the scorer's limit there isn't CPU saturation and something the rig doesn't reproduce holds requests back. Its p95 at 280k (190) is worse than #154's (35), and CPU per request at 280k didn't move (27 us both), against the ~5 % this rig showed for the page cache. Unverified guesses for the stall: slower disk on the VPS (WAL writes or dirty throttling blocking the loop, checkpoint holds), or the age rule itself. Next step would be to recalibrate on these points before any more tuning.
+
+Not verified: whether `2b4d6d8`, pushed about a minute after that comment and without having read it, helps on the scorer at all.

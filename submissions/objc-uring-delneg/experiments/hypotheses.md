@@ -46,3 +46,5 @@ NEW H17 (5 Nov): smaller passes. Challenges "a bigger batch is cheaper per reque
 H16 status: kept, about 4 % less CPU per request over two pairs.
 H17 status: dropped, 512 stays. 128 and 64 show no clear gain over two pairs.
 Cache cap to delay the memory wall (`--cache=80000`): dropped after one rep, CPU per request rose to 19.7 us.
+H15 status, after the scorer's run: accepted under rule 7 by the review, but p95 at 280k rose to 190 from 35 and 290k fails p99. Open whether the queue order is part of that.
+H16 status, after the scorer's run: no change in the scorer's us/req at 280k (27 both, rounded).
