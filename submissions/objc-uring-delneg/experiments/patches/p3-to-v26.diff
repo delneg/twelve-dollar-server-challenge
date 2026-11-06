@@ -1,0 +1,262 @@
+diff -ruN p3src/main.m v26src/main.m
+--- p3src/main.m	2026-11-06 18:11:41
++++ v26src/main.m	2026-11-06 20:14:39
+@@ -17,8 +17,9 @@
+ extern long long td_opt_mmap;
+ extern int td_opt_btree;
+ extern int td_opt_ckpass, td_opt_rearm, td_opt_cq, td_opt_cachekb, td_opt_cknice, td_opt_lock, td_opt_jsl, td_opt_warm, td_opt_ckdrop, td_opt_onewrite;
+-extern uint32_t td_opt_lifomin, td_opt_poolcap, td_opt_poolmax, td_opt_answers, td_opt_lifoage, td_opt_lifocap, td_opt_bufs;
+-extern int td_opt_lifo, td_opt_pcache, td_opt_rdefer, td_opt_walbuf, td_opt_huge;
++extern int td_opt_ready; extern int td_opt_rpoll; extern uint32_t td_opt_gate, td_opt_lifomin, td_opt_wwin, td_opt_poolcap, td_opt_poolmax, td_opt_answers, td_opt_lifoage, td_opt_lifocap, td_opt_bufs;
++extern int td_opt_lifo, td_opt_pcache, td_opt_rdefer, td_opt_walbuf;
++int td_opt_backlog = 65535, td_opt_defacc = 0, td_opt_thin = 0, td_opt_rcvbuf = 0, td_opt_sndbuf = 0; static const char *td_opt_cc = NULL; extern int td_opt_huge;   // --defacc=SECONDS: TCP_DEFER_ACCEPT on the listener
+ 
+ // Locks the code and read-only data of the binary and its libraries in RAM, up to RLIMIT_MEMLOCK (8 MB under systemd).
+ // With no swap, reclaim at the memory wall takes file-backed pages first, and the loop would stall on major faults
+@@ -46,10 +47,15 @@
+     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+     setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof one);
+     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
++    if (td_opt_defacc > 0) setsockopt(fd, IPPROTO_TCP, TCP_DEFER_ACCEPT, &td_opt_defacc, sizeof td_opt_defacc);
++    if (td_opt_cc) setsockopt(fd, IPPROTO_TCP, TCP_CONGESTION, td_opt_cc, (socklen_t)strlen(td_opt_cc));
++    if (td_opt_thin) setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &td_opt_thin, sizeof td_opt_thin);
++    if (td_opt_rcvbuf) setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &td_opt_rcvbuf, sizeof td_opt_rcvbuf);
++    if (td_opt_sndbuf) setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &td_opt_sndbuf, sizeof td_opt_sndbuf);
+     struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons((uint16_t)port) };
+     if (inet_pton(AF_INET, host, &a.sin_addr) != 1) { fprintf(stderr, "bad HOST %s\n", host); exit(1); }
+     if (bind(fd, (struct sockaddr *)&a, sizeof a) < 0) { perror("bind"); exit(1); }
+-    if (listen(fd, 65535) < 0) { perror("listen"); exit(1); }
++    if (listen(fd, td_opt_backlog) < 0) { perror("listen"); exit(1); }
+     return fd;
+ }
+ 
+@@ -75,12 +81,22 @@
+         else if (!strncmp(argv[i], "--answers=", 10)) td_opt_answers = (uint32_t)atoi(argv[i] + 10);
+         else if (!strncmp(argv[i], "--lifo=", 7)) td_opt_lifo = atoi(argv[i] + 7);
+         else if (!strncmp(argv[i], "--rdefer=", 9)) td_opt_rdefer = atoi(argv[i] + 9);
++        else if (!strncmp(argv[i], "--wwin=", 7)) td_opt_wwin = (uint32_t)atoi(argv[i] + 7);
+         else if (!strncmp(argv[i], "--lifomin=", 10)) td_opt_lifomin = (uint32_t)atoi(argv[i] + 10);
++        else if (!strncmp(argv[i], "--defacc=", 9)) td_opt_defacc = atoi(argv[i] + 9);
+         else if (!strncmp(argv[i], "--lifocap=", 10)) td_opt_lifocap = (uint32_t)atoi(argv[i] + 10);
+         else if (!strncmp(argv[i], "--bufs=", 7)) td_opt_bufs = (uint32_t)atoi(argv[i] + 7);
+         else if (!strncmp(argv[i], "--pcache=", 9)) td_opt_pcache = atoi(argv[i] + 9);
+         else if (!strncmp(argv[i], "--walbuf=", 9)) td_opt_walbuf = atoi(argv[i] + 9);
+         else if (!strncmp(argv[i], "--huge=", 7)) td_opt_huge = atoi(argv[i] + 7);
++        else if (!strncmp(argv[i], "--rpoll=", 8)) td_opt_rpoll = atoi(argv[i] + 8);
++        else if (!strncmp(argv[i], "--ready=", 8)) td_opt_ready = atoi(argv[i] + 8);
++        else if (!strncmp(argv[i], "--gate=", 7)) td_opt_gate = (uint32_t)atoi(argv[i] + 7);
++        else if (!strncmp(argv[i], "--backlog=", 10)) td_opt_backlog = atoi(argv[i] + 10);
++        else if (!strncmp(argv[i], "--cc=", 5)) td_opt_cc = argv[i] + 5;
++        else if (!strncmp(argv[i], "--thin=", 7)) td_opt_thin = atoi(argv[i] + 7);
++        else if (!strncmp(argv[i], "--rcvbuf=", 9)) td_opt_rcvbuf = atoi(argv[i] + 9);
++        else if (!strncmp(argv[i], "--sndbuf=", 9)) td_opt_sndbuf = atoi(argv[i] + 9);
+         else if (!strncmp(argv[i], "--lifoage=", 10)) td_opt_lifoage = (uint32_t)atoi(argv[i] + 10);
+         else if (!strncmp(argv[i], "--jsl=", 6)) td_opt_jsl = atoi(argv[i] + 6);
+         else if (!strncmp(argv[i], "--onewrite=", 11)) td_opt_onewrite = atoi(argv[i] + 11);
+diff -ruN p3src/server.m v26src/server.m
+--- p3src/server.m	2026-11-06 18:11:41
++++ v26src/server.m	2026-11-06 20:14:39
+@@ -15,7 +15,7 @@
+ #define BUF_GROUP 0
+ #define MAX_REQ 16384u         // bytes of one request (headers + body)
+ 
+-enum { UD_ACCEPT = 1, UD_RECV, UD_SEND, UD_CLOSE, UD_POLL, UD_CKPT };
++enum { UD_ACCEPT = 1, UD_RECV, UD_SEND, UD_CLOSE, UD_POLL, UD_CKPT, UD_RPOLL };
+ #define MAX_RINGS 16
+ #define UD(t, slot, gen) ((uint64_t)(t) << 56 | (uint64_t)((gen) & 0xFFFFFFu) << 32 | (uint64_t)(slot))
+ #define UD_T(u) ((uint32_t)((u) >> 56))
+@@ -30,7 +30,7 @@
+     uint32_t gen;
+     uint32_t held;  // requests deferred by a write hold (they stay at the front of the batch)
+     uint32_t queued;   // requests read and not answered yet
+-    bool live, recvArmed, sending, closeAfter, inDirty, needRearm;
++    bool live, recvArmed, sending, closeAfter, inDirty, needRearm, pollArmed;
+     TDBuf in;      // partial request bytes
+     TDBuf out;     // responses built, not yet submitted
+     TDBuf wire;    // bytes owned by the kernel (in-flight send)
+@@ -102,6 +102,10 @@
+ uint32_t td_opt_lifocap = 4;      // --lifocap=N: eighths of a pass the old end gets at --lifoage
+ uint32_t td_opt_lifomin = 0;      // --lifomin=N: eighths of a pass the old end gets before --lifoage
+ uint32_t td_opt_lifoage = 8000;   // --lifoage=MS: from this age the old end gets --lifocap eighths of a pass, from twice this age all of it
++int td_opt_ready = 1;              // --ready=0: completions waiting on other rings don't cut ring 0's pause short
++int td_opt_rpoll = 0;              // --rpoll=1: multishot poll plus one read per wake-up instead of multishot recv
++uint32_t td_opt_gate = 0;         // --gate=N: no new connections are accepted while more than N passes of requests wait; 0: always accept
++uint32_t td_opt_wwin = 0;         // --wwin=MS: writes commit at most once per this many ms (group commit window)
+ 
+ // ---------------------------------------------------------------- helpers
+ TD_INLINE bool ieq(const char *a, const char *lower, uint32_t n) {
+@@ -170,7 +174,9 @@
+     int64_t lastStats;
+     TDAuth *auth;
+     int64_t started, now;
+-    uint32_t passMs, nHeldNow;
++    uint32_t passMs, lastWriteMs, nHeldNow;
++    uint64_t gates;
++    int gateRing;     // the ring whose accept the gate cancelled, or -1
+     // batch
+     TDReq *reqs;              // parsed requests waiting for an answer: reqs[reqHead..nreq), oldest first
+     uint32_t reqHead, nreq, reqCap;
+@@ -214,6 +220,7 @@
+     ckDone = cfg->ckptDone;
+     uint32_t margin = slots / 4 < 4096 ? slots / 4 : 4096;   // > a listen backlog's burst (somaxconn 4096)
+     highWater = slots - margin;
++    gateRing = -1;
+     lowGap = margin / 2;
+     listenFd = cfg->listenFd;
+     nrings = cfg->rings < 1 ? 1 : cfg->rings > MAX_RINGS ? MAX_RINGS : cfg->rings;
+@@ -334,6 +341,21 @@
+ 
+ TD_INLINE void arm_recv(TDWorker *w, TDConn *c, uint32_t slot) {
+     struct io_uring_sqe *s = sqe_get(ring_of(w, slot));
++    if (td_opt_rpoll) {
++        if (!c->pollArmed) {
++            io_uring_prep_poll_multishot(s, fslot(w, slot), POLLIN);
++            s->flags |= IOSQE_FIXED_FILE;
++            io_uring_sqe_set_data64(s, UD(UD_RPOLL, slot, c->gen));
++            c->pollArmed = true;
++        } else {
++            io_uring_prep_recv(s, fslot(w, slot), NULL, 0, MSG_DONTWAIT);
++            s->flags |= IOSQE_FIXED_FILE | IOSQE_BUFFER_SELECT;
++            s->buf_group = BUF_GROUP;
++            io_uring_sqe_set_data64(s, UD(UD_RECV, slot, c->gen));
++        }
++        c->recvArmed = true;
++        return;
++    }
+     io_uring_prep_recv_multishot(s, fslot(w, slot), NULL, 0, 0);
+     s->flags |= IOSQE_FIXED_FILE | IOSQE_BUFFER_SELECT;
+     s->buf_group = BUF_GROUP;
+@@ -370,6 +392,13 @@
+         s->flags |= IOSQE_FIXED_FILE | IOSQE_IO_HARDLINK | IOSQE_CQE_SKIP_SUCCESS;
+         io_uring_sqe_set_data64(s, UD(UD_CLOSE, slot, 0xFFFFFF));
+     }
++    if (c->pollArmed) {
++        s = sqe_get(ring_of(self, slot));
++        io_uring_prep_poll_remove(s, UD(UD_RPOLL, slot, c->gen));
++        s->flags |= IOSQE_CQE_SKIP_SUCCESS;
++        io_uring_sqe_set_data64(s, UD(UD_CLOSE, slot, 0xFFFFFF));
++        c->pollArmed = false;
++    }
+     s = sqe_get(ring_of(self, slot));
+     io_uring_prep_close_direct(s, (unsigned)fslot(self, slot));
+     io_uring_sqe_set_data64(s, UD(UD_CLOSE, slot, c->gen));
+@@ -622,7 +651,11 @@
+ - (void)flush TD_DIRECT {
+     TDStore *st = store;
+     uptime = now - started;
+-    bool hold = ckHold, oneWrite = ckRewind && td_opt_onewrite && !hold;
++    // Group commit window: a commit's WAL frames are the pages its writes dirtied, and the hot ones (the table's last leaf,
++    // the feed index's first leaf) are in every commit. So more writes per commit means fewer frames per write, fewer
++    // pwrites, and less for the checkpointer to copy. Reads don't wait for this.
++    bool wwin = td_opt_wwin && (uint32_t)(passMs - lastWriteMs) < td_opt_wwin;
++    bool hold = ckHold || wwin, oneWrite = ckRewind && td_opt_onewrite && !hold;
+     bool db = false;
+     uint32_t first = reqHead, budget = td_opt_answers ? td_opt_answers : UINT32_MAX, last = nreq;
+     if (last - first > budget) last = first + budget;   // only a first look: routes only
+@@ -687,6 +720,7 @@
+         }
+         nreq = k;
+     }
++    if (wrote) lastWriteMs = passMs;
+     nHeldNow = nheld + ntail;
+     bool ok = true;
+     if (txn && ![st commit]) { ok = false; [st rollback]; }
+@@ -745,6 +779,22 @@
+         uint32_t bid = flags >> IORING_CQE_BUFFER_SHIFT;
+         TDRingState *rs = &R[k];
+         if (c->gen != UD_GEN(ud)) { if (hasBuf) buf_recycle(rs, bid); break; }
++        if (td_opt_rpoll) {
++            if (res > 0) {
++                if (c->live) [self onData:c slot:slot data:rs->bufs + (size_t)bid * BUF_SIZE length:(uint32_t)res];
++                buf_recycle(rs, bid);
++                if (c->live && ((flags & IORING_CQE_F_SOCK_NONEMPTY) || res == BUF_SIZE || !c->pollArmed)) arm_recv(self, c, slot);
++            } else if (res == -ENOBUFS) {
++                nobufs++;
++                if (c->live && !c->needRearm) {
++                    c->needRearm = true;
++                    c->recvArmed = false;
++                    rs->rq[(rs->rqHead + rs->rqLen++) % slots] = slot;
++                    nrearm++;
++                }
++            } else if (res != -EAGAIN && c->live) [self drop:c slot:slot];
++            break;
++        }
+         if (!(flags & IORING_CQE_F_MORE)) c->recvArmed = false;
+         if (res > 0) {
+             if (c->live) [self onData:c slot:slot data:rs->bufs + (size_t)bid * BUF_SIZE length:(uint32_t)res];
+@@ -763,6 +813,14 @@
+         }
+         break;
+     }
++    case UD_RPOLL: {
++        TDConn *c = conn_at(self, slot);
++        if (c->gen != UD_GEN(ud)) break;
++        if (!(flags & IORING_CQE_F_MORE)) c->pollArmed = false;
++        if (res > 0 && c->live) arm_recv(self, c, slot);
++        else if (res < 0 && res != -ECANCELED && c->live) [self drop:c slot:slot];
++        break;
++    }
+     case UD_SEND: {
+         TDConn *c = conn_at(self, slot);
+         if (c->gen != UD_GEN(ud)) break;
+@@ -839,6 +897,30 @@
+     }
+ }
+ 
++// Admission control. A new connection costs about as much CPU as two requests (handshake, sockets, accept, first read),
++// and when requests are already waiting that CPU comes out of the requests being served. So while a backlog stands the
++// server stops accepting: the listen queue fills, the kernel drops further SYNs at little cost, and clients retry them.
++// Established connections keep all the CPU. The backlog ends, and accept comes back, within passes.
++- (void)gateCheck TD_DIRECT {
++    uint32_t waiting = nreq - reqHead;
++    if (gateRing < 0) {
++        if (waiting <= td_opt_gate * td_opt_answers) return;
++        for (int k = 0; k < nrings; k++) {
++            if (!R[k].acceptArmed) continue;
++            struct io_uring_sqe *cs = sqe_get(&R[k].ring);
++            io_uring_prep_cancel64(cs, UD(UD_ACCEPT, k, 0), 0);
++            io_uring_sqe_set_data64(cs, UD(UD_CLOSE, 0, 0xFFFFFF));
++            gateRing = k;
++            gates++;
++            return;
++        }
++    } else if (waiting <= td_opt_answers / 2 && !R[gateRing].acceptArmed) {
++        int q = [self acceptTarget];
++        gateRing = -1;
++        if (q >= 0 && ![self acceptArmedAnywhere]) [self armAccept:q];
++    }
++}
++
+ - (void)reap:(int)k TD_DIRECT {
+     struct io_uring *r = &R[k].ring;
+     unsigned head, n = 0;
+@@ -952,7 +1034,7 @@
+         int ret;
+         // Under load, wait a little for more completions: bigger batches mean
+         // fewer io_uring_enter calls, one commit for more writes, warmer caches.
+-        if ((nreq > reqHead + nHeldNow && !ckHold) || ready) ret = io_uring_submit_and_get_events(&R[0].ring);   // work is waiting: no pause
++        if ((nreq > reqHead + nHeldNow && !ckHold) || (ready && td_opt_ready)) ret = io_uring_submit_and_get_events(&R[0].ring);   // work is waiting: no pause
+         else if (td_opt_batch > 1 && (lastReq >= td_opt_bthresh || nrearm || others || nHeldNow)) {
+             // Only the wait on ring 0 sleeps, so with other rings in use it always has a time limit, longer when nothing comes.
+             long long us = others && idlePasses > 64 ? 5000 : td_opt_bwait;
+@@ -995,6 +1077,7 @@
+             if (TD_UNLIKELY(statsOn)) { nAns += before - (nreq - reqHead); nPass++; t3 = mono_s(); tEnter += t1 - t0; tReap += t2 - t1; tFlush += t3 - t2; }
+             [self ckptAfterFlush];
+         } else if (TD_UNLIKELY(statsOn)) { tEnter += t1 - t0; tReap += t2 - t1; }
++        if (td_opt_gate) [self gateCheck];
+         if (nrearm) {
+             // A burst empties the buffer ring and ends every other armed receive with ENOBUFS. Each socket still has
+             // its request queued, so re-arming them all at once only ends them again. A pass re-arms what the ring's
+diff -ruN p3src/td_btree.c v26src/td_btree.c
+--- p3src/td_btree.c	2026-11-06 18:11:41
++++ v26src/td_btree.c	2026-11-06 20:14:39
+@@ -3,8 +3,7 @@
+ ** locking and page cache are SQLite's, only the bytecode engine is skipped.
+ ** Reads run inside the batch's transaction (BEGIN ... COMMIT around each
+ ** completion batch). Nothing is kept between calls but schema facts (root
+-** pages, key descriptions), checked against the schema cookie on every call,
+-** and the cursors' positions for the rest of the batch.
++** pages, key descriptions), checked against the schema cookie on every call.
+ ** Any row the fast path does not cover (overflow pages, unexpected types)
+ ** sends the caller back to its SQL statements. */
+ #include "sqlite3.c"

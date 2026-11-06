@@ -1,0 +1,39 @@
+diff -ruN p3src/server.m p4src/server.m
+--- p3src/server.m	2026-11-06 18:11:41
++++ p4src/server.m	2026-11-06 22:01:41
+@@ -97,11 +97,12 @@
+ void td_lock_code(void);
+ int td_opt_onewrite = 1;   // --onewrite=0|1
+ int td_opt_rearm = 2048;   // --rearm=N: receives re-armed per ring per pass (0: all at once)
+-uint32_t td_opt_answers = 128;    // --answers=N: requests answered per pass; the rest stay parked in the batch (0: all)
++uint32_t td_opt_answers = 64;     // --answers=N: requests answered per pass; the rest stay parked in the batch (0: all)
+ int td_opt_lifo = 1;              // --lifo=0|1: past one pass of backlog, answer the newest first
+ uint32_t td_opt_lifocap = 4;      // --lifocap=N: eighths of a pass the old end gets at --lifoage
+ uint32_t td_opt_lifomin = 0;      // --lifomin=N: eighths of a pass the old end gets before --lifoage
+ uint32_t td_opt_lifoage = 8000;   // --lifoage=MS: from this age the old end gets --lifocap eighths of a pass, from twice this age all of it
++uint32_t td_opt_wwin = 10;        // --wwin=MS: writes commit at most once per this many ms (group commit window)
+ 
+ // ---------------------------------------------------------------- helpers
+ TD_INLINE bool ieq(const char *a, const char *lower, uint32_t n) {
+@@ -170,7 +171,7 @@
+     int64_t lastStats;
+     TDAuth *auth;
+     int64_t started, now;
+-    uint32_t passMs, nHeldNow;
++    uint32_t passMs, lastWriteMs, nHeldNow;
+     // batch
+     TDReq *reqs;              // parsed requests waiting for an answer: reqs[reqHead..nreq), oldest first
+     uint32_t reqHead, nreq, reqCap;
+@@ -622,7 +623,11 @@
+ - (void)flush TD_DIRECT {
+     TDStore *st = store;
+     uptime = now - started;
+-    bool hold = ckHold, oneWrite = ckRewind && td_opt_onewrite && !hold;
++    // Group commit window: a commit's WAL frames are the pages its writes dirtied, and the hot ones (the table's last leaf,
++    // the feed index's first leaf) are in every commit. So more writes per commit means fewer frames per write, fewer
++    // pwrites, and less for the checkpointer to copy. Reads don't wait for this.
++    bool wwin = td_opt_wwin && (uint32_t)(passMs - lastWriteMs) < td_opt_wwin;
++    bool hold = ckHold || wwin, oneWrite = ckRewind && td_opt_onewrite && !hold;
+     bool db = false;
+     uint32_t first = reqHead, budget = td_opt_answers ? td_opt_answers : UINT32_MAX, last = nreq;
+     if (last - first > budget) last = first + budget;   // only a first look: routes only

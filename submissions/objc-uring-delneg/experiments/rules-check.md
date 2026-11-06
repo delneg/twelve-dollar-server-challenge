@@ -48,3 +48,18 @@ Not in this head, would need a look before any push: an accept gate (H30). It's 
 | Capabilities | runs as `deploy` with CAP_NET_BIND_SERVICE only: `hs.sh` runs it with `User=deploy`, no extra capabilities. MADV_HUGEPAGE, io_uring and `mlock` within RLIMIT_MEMLOCK need none |
 | Copies | VFS idea from #245 and #325, deferred rings from #264, credited; own code |
 | Own folder | diff touches only `submissions/objc-uring-delneg/` |
+
+
+## 6 Nov, ObjcTop2, candidate v28 + flags in `start.sh` (not pushed)
+
+| trap | status |
+|---|---|
+| Rule 5, no caching across requests | clear: the diff adds no data held between requests. `--wwin` delays writes, `--answers` caps a pass, stats are counters |
+| Rule 6, durable before 201 | clear: held writes stay in the queue and are answered only in a pass that commits, sends go out after `COMMIT`, as in the WAL hold. README rule 6 allows group commit if each response waits for its commit. `crash.py` 3 reps through `start.sh`: 0 acked posts missing, integrity ok |
+| Rule 7, nothing load-test specific | clear: the three settings are fixed, keyed on nothing. `--gate` is admission control, off by default and not in `start.sh`; the README says so |
+| Rule 8, 1 vCPU, 2 GB, no swap | E180: peak 1,419 MB under `MemoryMax=1750M`, no OOM. But the same run shows a collapse under load, a quality problem and no rule problem |
+| Rule 10 | clean install in Docker, 71 s + 87 s, 42/42 |
+| Rule 11 | clear: `TCP_DEFER_ACCEPT` is per-socket on our own listener, no sysctl, no pinning. `grep` finds only `/proc/self/maps` (mlock) and `setpriority` on our own child, both already there |
+| Scorer's `deploy` user, CAP_NET_BIND_SERVICE only | `hs.sh` runs `User=deploy` with no capabilities at all on port 3000, CI as `deploy`. `TCP_DEFER_ACCEPT` needs none |
+| `start.sh`, "configured only by the env vars" | fixed flags, no new env; other submissions' `start.sh` pass fixed flags too (`java-flash-relism`, `erlang-cowboy-tbsvttr`). Only the comment changed besides the flags |
+| Own folder | diff touches only `submissions/objc-uring-delneg/` (4 files against `1ae8cff`) |

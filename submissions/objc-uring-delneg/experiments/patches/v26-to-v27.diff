@@ -1,0 +1,12 @@
+diff -ruN v26src/server.m v27src/server.m
+--- v26src/server.m	2026-11-06 20:14:39
++++ v27src/server.m	2026-11-06 20:55:48
+@@ -1098,7 +1098,7 @@
+                 nrearm -= n;
+             }
+         }
+-        if (![self acceptArmedAnywhere]) {
++        if (gateRing < 0 && ![self acceptArmedAnywhere]) {   // the gate decides while it's closed
+             int q = [self acceptTarget];
+             if (q >= 0) [self armAccept:q];
+         }

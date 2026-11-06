@@ -1,0 +1,41 @@
+diff -ruN v27src/server.m v28src/server.m
+--- v27src/server.m	2026-11-06 20:55:48
++++ v28src/server.m	2026-11-06 21:12:56
+@@ -175,7 +175,7 @@
+     TDAuth *auth;
+     int64_t started, now;
+     uint32_t passMs, lastWriteMs, nHeldNow;
+-    uint64_t gates;
++    uint64_t gates, nLoop, nWork, nReady, nTimed, nEtime; double tTimed;
+     int gateRing;     // the ring whose accept the gate cancelled, or -1
+     // batch
+     TDReq *reqs;              // parsed requests waiting for an answer: reqs[reqHead..nreq), oldest first
+@@ -999,7 +999,8 @@
+     fprintf(stderr, "stats%s t=%lld live=%u accErr=%llu last=%d cqOvfPasses=%llu cqDropped=%u nobufs=%llu armed=%d rq=%u maxBatch=%llu npool=%u cacheKB=%d miss=%d\n",
+             final ? "-final" : "", (long long)(now - started), live, (unsigned long long)accErr, lastAccErr,
+             (unsigned long long)cqOvf, dropped, (unsigned long long)nobufs, (int)[self acceptArmedAnywhere], nrearm, (unsigned long long)maxBatch, npool, [store cacheStat:0], [store cacheStat:1]);
+-    fprintf(stderr, " phases enter=%.3f reap=%.3f flush=%.3f passes=%llu ans=%llu\n", tEnter, tReap, tFlush, (unsigned long long)nPass, (unsigned long long)nAns);
++    fprintf(stderr, " phases enter=%.3f reap=%.3f flush=%.3f passes=%llu ans=%llu loops=%llu work=%llu ready=%llu timed=%llu etime=%llu tTimed=%.3f\n", tEnter, tReap, tFlush, (unsigned long long)nPass, (unsigned long long)nAns, (unsigned long long)nLoop, (unsigned long long)nWork, (unsigned long long)nReady, (unsigned long long)nTimed, (unsigned long long)nEtime, tTimed);
++    nLoop = nWork = nReady = nTimed = nEtime = 0; tTimed = 0;
+     tEnter = tReap = tFlush = 0; nPass = nAns = 0;
+     maxBatch = 0;
+ }
+@@ -1032,15 +1033,17 @@
+         }
+         others = others && td_opt_rdefer;
+         int ret;
++        double tw0 = 0; if (TD_UNLIKELY(statsOn)) { tw0 = mono_s(); nLoop++; }
+         // Under load, wait a little for more completions: bigger batches mean
+         // fewer io_uring_enter calls, one commit for more writes, warmer caches.
+-        if ((nreq > reqHead + nHeldNow && !ckHold) || (ready && td_opt_ready)) ret = io_uring_submit_and_get_events(&R[0].ring);   // work is waiting: no pause
++        if ((nreq > reqHead + nHeldNow && !ckHold) || (ready && td_opt_ready)) { if (TD_UNLIKELY(statsOn)) { if (nreq > reqHead + nHeldNow && !ckHold) nWork++; else nReady++; } ret = io_uring_submit_and_get_events(&R[0].ring); }   // work is waiting: no pause
+         else if (td_opt_batch > 1 && (lastReq >= td_opt_bthresh || nrearm || others || nHeldNow)) {
+             // Only the wait on ring 0 sleeps, so with other rings in use it always has a time limit, longer when nothing comes.
+             long long us = others && idlePasses > 64 ? 5000 : td_opt_bwait;
+             struct __kernel_timespec ts = { .tv_sec = 0, .tv_nsec = us * 1000 };
+             struct io_uring_cqe *cq;
+             ret = io_uring_submit_and_wait_timeout(&R[0].ring, &cq, (unsigned)td_opt_batch, &ts, NULL);
++            if (TD_UNLIKELY(statsOn)) { nTimed++; tTimed += mono_s() - tw0; if (ret == -ETIME) nEtime++; }
+         } else ret = io_uring_submit_and_wait(&R[0].ring, 1);
+         if (ret < 0 && ret != -EINTR && ret != -ETIME && ret != -EBUSY && ret != -EAGAIN) {
+             // Never exit here: a dead process leaves no listener, and every later connect is refused. Under memory

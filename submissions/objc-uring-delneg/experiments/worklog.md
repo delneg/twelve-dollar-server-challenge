@@ -580,3 +580,127 @@ Instead of a stress test, first the plain question: are huge pages worth having 
 Pushed p3 as `1ae8cff` at about 17:47 UTC on Denis's order ("can you push your changes BEFORE rerunning the expiremnts ?"), PR body updated, no PR comment. Source checked by sha256 against `/root/objc3/src/p3` on Synteq (14 files equal), diff only in `submissions/objc-uring-delneg/`. Bar met: 5-minute holds at 300k twice and 310k once, 2-minute probes at 290k, 300k, 310k, 42/42, clean install, crash test, rules check. Open at the push: whether huge pages help (E154-E157 running) and how they behave on a fragmented 2 GB box (unmeasured). PR was last commented on 5 Nov 23:10 UTC, so no run seen in progress; a run can't be seen from here except by that.
 
 Correction to the "105.8 req/s per 1,000 users, cause unknown" above: that's the hold's rate. Over a whole run E147 did 11,149,149 requests in 390 s, 28.6k req/s, 95.3 per 1,000 users; the scorer's 26,702 at 280k is 95.4. So the rig's load matches the scorer's, and the scorer's req/s is a whole-run figure. PR body corrected (edit only, no comment).
+
+## 6 Nov, huge pages A/B after the reboot, and the rig's budget
+
+| run | build | users | length | K6 p95 / p99 | max ms | avail before hog, MiB | app us/req (85-180, 180-270, 270-359 s) | note |
+|---|---|---:|---|---|---:|---:|---|---|
+| E154 | p3 `--huge=0` | 300k | 5 min | 16.8 / 435 | 8,306 | 15,231 | 23.25, 22.83, 23.94 | |
+| E155 | p3 | 300k | 5 min | 5.8 / 71.8 | 1,573 | 15,185 | 22.59, 21.83, 22.54 | best hold so far |
+| E156 | p3 `--huge=0` | 300k | 5 min | 15.5 / 1,145 | 14,772 | 15,213 | 24.36, 24.25, 24.05 | fails p99; direct reclaim 568 |
+| E157 | p3 | 300k | 5 min | 5,320 / 5,320 | | 15,103 | 30-34 | void: global OOM, `pgmajfault` 873k by t=324, reclaim from t=60-119; server killed at t=390 when my ssh login ran landscape-sysinfo |
+
+Why E157 is void, and partly E154-E156: the reboot brought back nginx (off before), ModemManager, udisks2, unattended-upgrades and more, so MemAvailable before the hog fell from 15,407-15,464 to 15,103-15,231 with the hog's size fixed: 180-360 MiB off the calibrated budget. Also found: every ssh login runs `update-motd` scripts, landscape-sysinfo among them, on the rig's memory. Fix: those services stopped and disabled, `chmod -x /etc/update-motd.d/*`, hs.sh stops the four services each run, AV0 = 15,470 for MemAvailable 15,502 now (budget as before the reboot). So p3 doesn't get its 300k pass back from E157 by argument; E158 repeats it on the corrected budget.
+
+Huge pages, on what's clean: on 22.3 (E155), 23.4, 23.7 (E147, E148) us/req, p99 72, 240, 132; off 23.3, 24.2, p99 435, 1,145. They stay. Counters per run: `thp_fault_alloc` 51, `thp_fault_fallback` 0. Even in E157's thrash only 9 fallbacks and 5 direct compactions, all successful, which is the only data on that risk so far.
+
+The cliff is sharp: 15,185 MiB clean, 15,103 thrash. In the rig's terms the server needs about 1,550-1,630 of the calibrated 1,850 MiB at 300k (`SRVMB` minus the shortfall). The unknown is how well 1,850 maps to the scorer's box; `1fe6941` dying at 290k fitted it.
+
+## 6 Nov, p3's limit on the corrected budget (AV0 15,470, H45)
+
+| run | build | users | length | K6 p95 / p99 | hold p99 | app us/req | note |
+|---|---|---:|---|---|---:|---:|---|
+| E158 | p3 | 300k | 5 min | 9.9 / 179 | 107 | | pass, repeat of the void E157 |
+| E159 | p3 | 320k | 2 min | 250 / 5,320 | 5,320 | 24.71 | fail: t=148-190 falls into all-late (mean 3.2 s at t=160), CPU 88-97 %; before that clean. free at the floor (206-233 MiB) from t=70, file 4-40 MiB, kswapd scanning |
+| E160 | p3 | 330k | 2 min | 28.1 / 1,050 | 470 | 23.21 | just fails p99 |
+| E161 | p3 | 340k | 2 min | 5,320 / 5,320 | | | global OOM, server killed |
+
+So the rig's wall for p3 is 320-330k, with memory and CPU arriving together: hold app 83 %, iowait 7 % at 320k, free at the floor from t=70. E159 against E160 shows the all-late state is still a coin toss near the wall. Whether the scorer's memory wall sits in the same place is unknown; the budget was fitted to `1fe6941` dying at 290k.
+
+Rig notes: q.sh's `head -1` picked up the new `vm:` line, fixed. Tl2.py prints the per-10 s series.
+
+Reading the loop for H44: with more than one ring active, `ready` (any other ring has a CQE) skips ring 0's pause, so the 128-completions-or-1-ms wait hardly ever runs at 300k. New flag `--ready=0` in v26 (H46), with TD_STATS for passes per second.
+
+## 6 Nov, the scorer on `1ae8cff`: 280,000 again
+
+Arjay's comment, 18:49 UTC: 280,000 x 5 min: 26,731 req/s, p95 25.4 / p99 236.4 ms, 0 errors, 83 % CPU (28 us/req), 629 MB peak. 290,000 and 300,000 failed the 2-minute probe on p99 (2.52 s, 2.99 s, at 86-87 % CPU, 0 errors). 42/42, CI green. A tie, so not merged; the PR stays open.
+
+So the rig is still too kind, again on the 2-minute whole-run p99: E150 290k 8.9 / 156 against the scorer's p99 2,520; E151 300k 8.7 / 138 against 2,990. My push bar was met and the forecast was wrong. App CPU per request: rig 23.5 us, scorer 28 us; the same ratio for `2b4d6d8` was about 24.5 to 26.
+
+What the shape says, an estimate: p95 fine and p99 over 1 s in a 2-minute probe means more than 1 % of the run's requests (53k at 290k) waited over 1 s, while the 5-minute hold's 1 % (107k) at 280k stays clean. That's the parked set at the ramp's end, as before, only bigger on the real box: real virtio makes a connection and a request dearer than veth does. With hold CPU 86 % capacity is about 35.7k req/s; if a connection costs about 80 us there (a guess; 40 us on the rig), 4.8k conn/s takes 39 % at t=60, capacity falls to 21.8k against 30.7k asked, and the deficit from t=42 to t=60 is about 80k requests. That fits 53k being exceeded at 290k and 107k not at 280k.
+
+Next, with 15 experiments left (85 used): make the rig fail p3 at 290k like the scorer (higher burner), then what cuts that deficit: accept gate (H30), checkpointer at nice 19 during it (H21), `TCP_DEFER_ACCEPT` (H35).
+
+## 6 Nov, H46 and recalibration after the scorer's 1ae8cff
+
+| run | build | users | length | burner hold, ramp | K6 p95 / p99 | hold p99 | app us/req | note |
+|---|---|---:|---|---|---|---:|---:|---|
+| E162 | v26, STATS | 300k | 2 min | 8 | 22.1 / 620 | 230 | 23.74 | 1,620-1,890 passes/s, about 17 answers a pass; enter 0.75, flush 0.21, reap 0.03 of each second |
+| E163 | v26 `--ready=0`, STATS | 300k | 2 min | 8 | 20.0 / 2,765 | 205 | 23.87 | passes the same, p50 4.3 ms against 1.25 |
+| E164 | v26 `--ready=0` | 320k | 2 min | 8 | 79.8 / 5,320 | 995 | 22.28 | |
+| E165 | v26 `--ready=0 --bwait=2000` | 320k | 2 min | 8 | 85.7 / 2,395 | 460 | 23.00 | |
+| E166 | p3 | 290k | 2 min | 16 | 10.5 / 160 | 86 | 23.79 | |
+| E167 | p3 | 280k | 2 min | 16 | 10.4 / 151 | 93 | | |
+| E168 | p3 | 290k | 2 min | 16, 36 for the first 60 s | 16.5 / 350 | 178 | | `burn2.py`; mean 123 ms at t=60 |
+
+H46 killed: no fewer passes, no less CPU, latency worse. A second burner step isn't enough to make p3 fail 290k; the scorer's p99 there is 2,520.
+
+Real NIC on Synteq, for the record: virtio-net, 1 queue, RX ring 1,024, TX ring 256, `rx-frames` 1, fq_codel on eth0 (target 5 ms). The rig's veth has neither ring nor qdisc, so it can't lose packets at CPU 0, and `netdev_max_backlog` is 250,000 from an old `/etc/sysctl.d/90-million.conf`. Open idea, untested: RX overflow or CoDel drops on the real box when softirq falls behind at the ramp's end, RTOs of 200 ms and up. That would give a p99 like the scorer's that no burner reproduces.
+
+| run | build | users | length | burner hold, ramp | K6 p95 / p99 | hold p99 | note |
+|---|---|---:|---|---|---|---:|---|
+| E169 | p3 | 290k | 2 min | 20, 50 | 18.9 / 275 | 245 | still passes; hold 17.6 / 245 is close to the scorer's 5-minute 25 / 236 at 280k |
+| E170 | v27 `--gate=2 --backlog=256` | 290k | 2 min | 20, 50 | 15.5 / 270 | 225 | 107k SYNs dropped, `Possible SYN flooding`, max 13.6 s, 0 errors; neutral where the rig has no deficit |
+| E171 | v27 `--cknice=19` | 290k | 2 min | 20, 50 | 56.1 / 5,320 | 5,120 | killed: the checkpointer starves behind the burner and writes wait on the WAL (H21) |
+
+v25-v26's gate was a no-op: the main loop re-armed accept at once when nothing was armed. Fixed in v27 (`gateRing < 0 &&`).
+
+A burner doesn't reproduce the scorer's 2-minute p99 at 290k. Reasoning from the scorer's own history, which is better data than the rig here:
+- `197ad57` (whole pass to the old end at 250 ms, so near oldest-first in a backlog): 290k p99 1.05 s, just over, p95 under 500.
+- `2b4d6d8`: 290k p95 1.13 s.
+- `1ae8cff` (strict newest-first, 8 s bound): 290k p99 2.52 s, p95 under 500.
+An oldest-first run that peaks near 1 s means the backlog there peaks at about 35k requests. Then 1 % of a 2-minute run (53k) should have held under `1ae8cff` unless its deficit is bigger than `197ad57`'s was. Unknown why; 128 answers at saturation mean more passes, commits and enters than 512 did, and I never measured that on the real box.
+
+#264's README, read for this: single-shot accepts, at most 512 in flight, re-armed only when a pass has seen them complete, so accept rate falls when passes get long; 8 `SO_REUSEPORT` listeners. Our multishot accept drains the queue at every enter, whatever the load. Same idea as the gate without its SYN drops.
+
+| run | build | users | length | burner | K6 p95 / p99 | hold p99 | note |
+|---|---|---:|---|---|---|---:|---|
+| E172 | v27 `--gate=2 --backlog=256` | 320k | 2 min | 8 | 54.6 / 1,330 | 705 | fail: 7,531 connect errors (0.169 %), max 145 s, 329k dials, hold rate down to 31.9k |
+| E173 | v27 `--gate=2 --backlog=256` | 330k | 2 min | 8 | 5,320 / 5,320 | 5,320 | collapse: hold sys 63 %, 17k req/s, SYN cookies |
+
+H30 killed: worse than none at 320k (E159 was bad by chance, E160 at 330k nearly passed without it). Same lesson as #319 tells about #257's accept pause.
+
+Rig flaw found: `burn.py` and `burn2.py` spin on `perf_counter`, wall time. When app and softirq contend, the burner's window passes without its getting the CPU, so it steals less exactly at saturation. That's why BURN=8 to 20, and even 50 in the ramp, barely hurt. All "burner N %" so far were a tax only below saturation. `burn3.py` counts CPU time (`BCPU=1`). E174 tests it.
+
+| run | build | users | length | burner, CPU time | K6 p95 / p99 | hold p99 | app us/req | note |
+|---|---|---:|---|---|---|---:|---:|---|
+| E174 | p3 | 290k | 2 min | 16 | 18.4 / 305 | 168 | | hold busy 88 % |
+| E175 | p3 | 290k | 2 min | 26 | 53.7 / 5,320 | 415 | 21.39 | the scorer's shape: p95 fine, p99 over 1 s. t=60: 19.5k req/s, mean 1.1 s. Hold busy 93 % |
+
+Rig v3.2 = v3.1 + `burn3.py`, CPU time, 26 %. It reproduces `1ae8cff` failing 290k on p99. Not checked: 280k passing at this setting. It says the real box may have about 7 % spare at 290k, not the 14 % its "86 % CPU" looks like. Plausible reason, unverified: softirq taken while the app sleeps isn't charged to the app's cgroup.
+
+At saturation in E175: 74 % left after the burner, a connection 40 us x 4.8k/s = 19 %, so 55 % / 28 us = 19.6k req/s, matching the 19.5k seen at t=60. Against 30k asked, the deficit is 10k/s for about 12 s, about 120k requests; 1 % of the run is 53k. CPU per request is the lever: each us/req is about 3.5 %.
+
+E176, v28 (branch counters), `--ready=0`, 300k, 2 min, wall-clock burner 8: 30.1 / 870, hold 18.4 / 275, app 24.91 us/req. Passes 258-362 a second, about 100 answers a pass, timed wait about 1.4 ms, against E162's 1,620-1,890 passes and 17 answers a pass at 23.74 us/req. (E163's "same passes" were sampled at the wrong lines.) So the pause works, and bigger passes cost more per answer, as the older note had it (9 us at 190 passes/s, 12.5 at 55). H46 stays killed, and it points the other way: smaller is cheaper. At saturation the 128-answer cap sets pass size, so E177 tries 64 on the case that fails.
+
+| run | build | users | length | burner, CPU time | K6 p95 / p99 | hold p95 / p99 | app us/req | note |
+|---|---|---:|---|---|---|---|---:|---|
+| E177 | p3 `--answers=64` | 290k | 2 min | 26 | 24.1 / 5,320 | 14.5 / 235 | 21.49 | against E175 53.7 / 5,320, 15.8 / 415; t=65 mean 1 s, then clean |
+
+## E178-E180, the push candidate, end of the run
+
+| run | build | users | length | burner, CPU time | K6 p95 / p99 | hold p95 / p99 | max | note |
+|---|---|---:|---|---|---|---|---:|---|
+| E178 | v27 `--answers=64 --wwin=10 --defacc=1` | 290k | 2 min | 26 | 24.0 / 355 | 19.85 / 345 | 18.3 s | pass, 30.6k req/s |
+| E179 | v28 + same flags | 290k | 5 min | 26 | void | | | my bug: `gate.sh` ran `ulimit -n 65535` in its own shell, `ul3` raises soft to hard, so the generator stopped at about 65k connections. The server was healthy |
+| E180 | v28 + same flags, the candidate tree | 290k | 5 min | 26 | 42.6 / 5,320 | 28.95 / 44.75 for what finished | 162 s | **fail**, 0 errors, 209,258 users waiting at the end, 208,858 of them for over 5 s |
+
+E180's req/s: 27.0k at t=70-100, 22.0k, 16.7k, 12.4k, 9.3k, 7.0k at t=300-350, with CPU at 100 % throughout and app 75-80 %. Mean latency of what finishes stays 5-15 ms. It left the ramp with a spike at t=60-65 (mean 2.5 s), as E178 did on a smaller scale (t=75, 629 ms), but never got back to 30k.
+
+Post-mortem on the run's database, no new run: 250,484 new rows (27,186 posts, 223,298 likes) in 5,696,708 answers, 4.40 % writes against the 7.8 % the mix gives. That's about 194k writes short, about the number of users stuck. So users end up parked on a write one by one, and reads keep flowing.
+
+The reading of `flush`, not proved (no TD_STATS in that run): with `--wwin` a write is answered only on a pass at least 10 ms after the last write pass, at most 64 of them; every pass inside the window walks the held writes and copies them, so a pass costs O(held). Once a backlog forms, the write rate falls under demand, the queue grows and passes get longer. That's a one-way trap. E178 got away with it in 2 minutes. I didn't separate `--wwin` from `--defacc`, and `--answers=64` alone (E177) failed p99 without this collapse, so `--wwin` is the suspect.
+
+Gates on the candidate tree (v28 source, p3's `td_btree.c` comment, flags in `start.sh`), log in `logs/gate-v28f.log`:
+
+- clean `ubuntu:24.04` in Docker, `--cpus=1 --memory=2g`, kernel 6.8.0-147: install.sh 71 s, build + tests 87 s, passed=42 failed=0, through `start.sh`
+- `crash.py`, 3 reps of `kill -9`, through `start.sh`: 14,397, 25,437, 33,100 acked posts, 0 missing, integrity ok
+- rules check: see `rules-check.md`
+
+v27 got no gates of its own. It's the same logic as v28 (`patches/v27-to-v28.diff` is counters under `statsOn`), so E180 applies to it too, and nothing was going to be pushed.
+
+Decision: pushed nothing. Denis's order had four gates, which all passed, and "v28 if it holds up, else v27". v28 didn't hold up, and v27 only looks better because it never ran 5 minutes. A push starts another rescore on a public PR for a config I've just seen collapse at the level it's aimed at, so that goes back to Denis with the numbers. Ready to go if he wants it: `patches/candidate-v28-flags-over-1ae8cff.diff`, local commit `1baccb2` on branch `objc-uring-delneg-2-candidate` in `/tmp/tdsc-objc2`.
+
+Budget: E81-E180, 100 of 100, voids included. Money: DeepSeek about $0.023, Gemini via grsai unlisted, nothing else.
+
+State of Synteq at the end: no load, server, hog or burner running, no namespaces, no containers. The sysctls I changed are back at the values seen at the start, nginx, ModemManager, udisks2 and unattended-upgrades are enabled and running again, motd scripts executable again. Stock `vm.min_free_kbytes` was never captured, it's at 67584, the rig's value. `tcp_max_orphans=1048576` and `netdev_max_backlog=250000` come from the old `/etc/sysctl.d/90-million.conf`.

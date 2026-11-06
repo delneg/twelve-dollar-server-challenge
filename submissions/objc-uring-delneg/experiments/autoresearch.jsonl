@@ -34,3 +34,30 @@
 {"exp": 151, "name": "p3 300k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=120", "metric": "K6 p95/p99", "values": [8.7, 138.1], "kept": true}
 {"exp": 152, "name": "p3 310k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=120", "metric": "K6 p95/p99", "values": [10.7, 196.8], "kept": true}
 {"exp": 153, "name": "p3 300k probe with a fragmenting hog", "box": "Synteq", "harness": "rig v3.1 BURN=8 FRAG=1", "metric": "none", "values": null, "kept": false, "note": "box hung during the queue; void"}
+{"exp": 154, "name": "p3 --huge=0 300k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [16.8, 435], "kept": false}
+{"exp": 155, "name": "p3 300k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [5.8, 71.8], "kept": true}
+{"exp": 156, "name": "p3 --huge=0 300k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [15.5, 1145], "kept": false, "note": "fails p99"}
+{"exp": 157, "name": "p3 300k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "none", "values": null, "kept": false, "note": "void: global OOM, the reboot had shrunk the memory budget"}
+{"exp": 158, "name": "p3 300k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [9.9, 179], "kept": true}
+{"exp": 159, "name": "p3 320k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [250, 5320], "kept": false, "note": "fail"}
+{"exp": 160, "name": "p3 330k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [28.1, 1050], "kept": false, "note": "fail"}
+{"exp": 161, "name": "p3 340k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "none", "values": null, "kept": false, "note": "global OOM"}
+{"exp": 162, "name": "v26 300k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [22.1, 620], "kept": false, "note": "pass"}
+{"exp": 163, "name": "v26 --ready=0 300k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [20.0, 2765], "kept": false, "note": "fail"}
+{"exp": 164, "name": "v26 --ready=0 320k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [79.8, 5320], "kept": false, "note": "fail"}
+{"exp": 165, "name": "v26 --ready=0 --bwait=2000 320k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [85.7, 2395], "kept": false, "note": "fail"}
+{"exp": 166, "name": "p3 290k probe", "box": "Synteq", "harness": "rig v3.1 BURN=16", "metric": "K6 p95/p99", "values": [10.5, 160], "kept": false, "note": "pass; burner step"}
+{"exp": 167, "name": "p3 280k probe", "box": "Synteq", "harness": "rig v3.1 BURN=16", "metric": "K6 p95/p99", "values": [10.4, 151], "kept": false, "note": "pass; burner step"}
+{"exp": 168, "name": "p3 290k probe", "box": "Synteq", "harness": "rig v3.1 BURN=16 RBURN=36", "metric": "K6 p95/p99", "values": [16.5, 350], "kept": false, "note": "pass; burner step"}
+{"exp": 169, "name": "p3 290k probe", "box": "Synteq", "harness": "rig v3.1 BURN=20 RBURN=50", "metric": "K6 p95/p99", "values": [18.9, 275], "kept": false, "note": "pass; burner step"}
+{"exp": 170, "name": "v27 --gate=2 --backlog=256 290k probe", "box": "Synteq", "harness": "rig v3.1 BURN=20 RBURN=50", "metric": "K6 p95/p99", "values": [15.5, 270], "kept": false, "note": "pass"}
+{"exp": 171, "name": "v27 --cknice=19 290k probe", "box": "Synteq", "harness": "rig v3.1 BURN=20 RBURN=50", "metric": "K6 p95/p99", "values": [56.1, 5320], "kept": false, "note": "fail"}
+{"exp": 172, "name": "v27 --gate=2 --backlog=256 320k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [54.6, 1330], "kept": false, "note": "fail, 7,531 connect errors"}
+{"exp": 173, "name": "v27 --gate=2 --backlog=256 330k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [5320, 5320], "kept": false, "note": "collapse"}
+{"exp": 174, "name": "p3 290k probe", "box": "Synteq", "harness": "rig v3.2 CPU-time burner 16", "metric": "K6 p95/p99", "values": [18.4, 305], "kept": false, "note": "pass"}
+{"exp": 175, "name": "p3 290k probe", "box": "Synteq", "harness": "rig v3.2 CPU-time burner 26", "metric": "K6 p95/p99", "values": [53.7, 5320], "kept": false, "note": "fail, reproduces the scorer's shape"}
+{"exp": 176, "name": "v28 --ready=0 STATS 300k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8", "metric": "K6 p95/p99", "values": [30.1, 870], "kept": false, "note": "pass; counters only"}
+{"exp": 177, "name": "p3 --answers=64 290k probe", "box": "Synteq", "harness": "rig v3.2 CPU-time burner 26", "metric": "K6 p95/p99", "values": [24.1, 5320], "kept": false, "note": "fail"}
+{"exp": 178, "name": "v27 --answers=64 --wwin=10 --defacc=1 290k probe", "box": "Synteq", "harness": "rig v3.2 CPU-time burner 26", "metric": "K6 p95/p99", "values": [24.0, 355], "kept": false, "note": "pass, max 18.3 s"}
+{"exp": 179, "name": "v28 + start.sh flags 290k hold", "box": "Synteq", "harness": "rig v3.2 CPU-time burner 26", "metric": "none", "values": null, "kept": false, "note": "void: gate.sh's ulimit -n 65535 capped the generator at 65k connections"}
+{"exp": 180, "name": "v28 + start.sh flags 290k hold", "box": "Synteq", "harness": "rig v3.2 CPU-time burner 26", "metric": "K6 p95/p99", "values": [42.6, 5320], "kept": false, "note": "fail: slow collapse, 209k users stuck, max 162 s, writes 4.40 % of answers against 7.8 %"}

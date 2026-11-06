@@ -1,0 +1,4 @@
+e178 b=v27 u=290000 K6 reqs=5290788 p50=1.60 p95=24.0 p99=355.0 max=18256 err=0.000% users=290000 scale=1.000 rps=30628 p50=1.70 p95=19.85 p99=345.00 max=18256.2 ms err=0.000% connerr=0 dials=290000 cpu=46.6% us/req=15.22 rss=138MB  peak=629M
+  ramp: app 49.3% | cpu0 user 22 sys 31 si 24 irq 0 idle 0 iow 23 steal 0.0 | ksoftirqd 0.9%
+  hold: app 64.1% | cpu0 user 25 sys 37 si 30 irq 0 idle 0 iow 9 steal 0.0 | ksoftirqd 0.4%
+DONE

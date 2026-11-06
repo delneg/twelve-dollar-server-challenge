@@ -1,0 +1,21 @@
+Fri Nov  6 20:07:34 UTC 2026
+== mk
+8 warnings generated.
+build: built bin/server (PGO)
+v28f rc=0 c28599264ef2 1347432
+Fri Nov  6 20:08:46 UTC 2026
+== ci
+install.sh 71 s
+run.sh 87 s rc=0
+  ok   feed entry matches the post
+passed=42 failed=0
+kernel 6.8.0-147-generic
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+Fri Nov  6 20:11:27 UTC 2026
+== crash
+rep 0 acked posts 14397 likes 14319 wal bytes 30537472 integrity ok missing acked posts 0
+rep 1 acked posts 25437 likes 25710 wal bytes 12912112 integrity ok missing acked posts 0
+rep 2 acked posts 33100 likes 33155 wal bytes 21963752 integrity ok missing acked posts 0
+PASS
+Fri Nov  6 20:13:37 UTC 2026
+GATES-DONE
