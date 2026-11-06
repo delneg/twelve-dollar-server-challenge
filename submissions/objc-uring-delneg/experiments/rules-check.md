@@ -33,3 +33,18 @@
 
 Not in this head, would need a look before any push: an accept gate (H30). It's admission control on our own queue, and k6 doesn't count connect time, so the README would have to say that plainly and let Arjay judge it.
 
+
+## 6 Nov, ObjcTop2, head p3 (adds VFS, huge pages, one cursor per feed position to p1)
+
+| trap | status |
+|---|---|
+| Rule 2 and rulings of 2026-10-31, stock SQLite | amalgamation unpatched. The VFS uses `sqlite3_vfs_register` and only wraps the default VFS's own methods for files opened with `SQLITE_OPEN_WAL`. LEADERBOARD: "SQLite's public plugin APIs (a custom page cache through `SQLITE_CONFIG_PCACHE2`, a custom VFS)" are fine; #325's scorer note says the same of a WAL shim VFS |
+| Ruling 8, no writes to private state | the VFS and page cache see only what the plugin APIs hand them. Cursors are driven with `sqlite3BtreeCursor`, `TableMoveto`, `First`, `Next`, `PayloadFetch`, `CloseCursor`; no `BtCursor` field is written. `grep -n 'curFlags\|->ix\b\|info\.n\|->eState\|pPage\|apPage' src/td_btree.c` finds nothing |
+| Rule 5, no caching across requests | each `/feed` still walks the index, counts likes and fetches and decodes each row from SQLite's page. The per-position cursor keeps only a cursor's position within one pass, the same thing the merged code does with its four cursors, and the shortcut is stock `sqlite3BtreeTableMoveto`. No row, result or JWT is kept. #260 and #243 share one query's result between requests; here each request does its own read. Disclosed in the README and PR body so Arjay can judge it |
+| Rule 6, durable before 201 | a commit frame flushes the buffer with `pwrite` before `COMMIT` returns, and sends come after that: same state as stock WAL with `synchronous=NORMAL`. `crash.py` 3 reps with `kill -9` of server and child: 0 acked posts missing, integrity ok |
+| Rule 7 | answer order uses only the server's own queue; nothing keyed on client or traffic shape |
+| Rule 10 | clean `ubuntu:24.04` in Docker on Synteq, `--cpus=1 --memory=2g`, kernel 6.8.0-147: install.sh 69 s, build + 42 tests 91 s, 42/42 |
+| Rule 11 | no sysctls, no pinning. `madvise(MADV_HUGEPAGE)` acts on our own mappings, and Ubuntu's `enabled` is already `madvise`. Nothing new in start.sh |
+| Capabilities | runs as `deploy` with CAP_NET_BIND_SERVICE only: `hs.sh` runs it with `User=deploy`, no extra capabilities. MADV_HUGEPAGE, io_uring and `mlock` within RLIMIT_MEMLOCK need none |
+| Copies | VFS idea from #245 and #325, deferred rings from #264, credited; own code |
+| Own folder | diff touches only `submissions/objc-uring-delneg/` |

@@ -534,3 +534,41 @@ Corrects two earlier calls. The 2-minute A/Bs (E116-E125) saw huge pages and the
 
 Annotate-driven idea (own, H41): `sqlite3BtreeTableMoveto` returns at once from a cursor already on the key, so one cursor per position in the feed (20 for posts, 20 for authors) skips the descents for all feeds of a pass but the first. Same public cursor API, no private state written, each request still decodes its rows from SQLite's page.
 
+
+## 6 Nov, one cursor per feed position (H41), and the candidate head p3
+
+Scorer's box, re-read in LEADERBOARD.md: a Synteq 1 vCPU / 2 GB VPS (KVM, Xeon Platinum 8260, kernel 6.8), so our rig's host is the same vendor. README rule 8 still says DigitalOcean.
+
+v25 = v21 + H41 + experimental flags, all off. `--walbuf=1 --huge=1` needed there, they default to 0. p3 = `2b4d6d8` + rings deferred + strict newest-first + 128 answers + VFS + huge pages + H41, with those defaults on.
+
+| run | build | users | length | K6 p95 / p99 | app us/req by window (85-180, 180-270, 270-359 s) | note |
+|---|---|---:|---|---|---|---|
+| E139 | v25 | 300k | 5 min | 9.2 / 152 | 24.3 | |
+| E140 | v21 | 300k | 5 min | 10.2 / 193 | 25.0 | |
+| E141 | v25 | 300k | 5 min | 6.9 / 96.4 | 23.3 | max 1.17 s |
+| E142 | v21 | 300k | 5 min | 12.8 / 255 | 25.3 | |
+| E143, E145 | v25, `perf stat -C 0` | 300k | 2 min | 17.7 / 4,805, | | counts only: perf raises softirq (si 44-51 against 33) and hurts tails |
+| E144, E146 | v21, `perf stat -C 0` | 300k | 2 min | 41.7 / 5,320, | | counts only |
+
+Counts per request on CPU 0, burner included: instr:u 34.1-34.3k (v25) against 41.8k (v21); cycles:u 19.6k against 21.4k; cycles:k 59.4k, 57.8k against 61.0k, 59.1k; instr:k 27.7k both. So H41 is about -4 % of total cycles. Kernel IPC about 0.46, user about 1.74.
+
+Note on method: an identical build varies by about 1 us/req between 5-minute holds (E129 23.2, E140 25.0, E142 25.3). Single-run CPU claims are weak, including the "VFS -1.2, huge -2" above; instruction counts are stable.
+
+p3 gates: 42/42. `crash.py` 3 reps PASS (400 writers, `kill -9` with the child, integrity_check ok, acked posts 12,634, 21,836, 31,897, 0 missing). Clean install: Docker `ubuntu:24.04`, `--cpus=1 --memory=2g`, kernel 6.8.0-147, install.sh 69 s, build + tests 91 s, 42/42.
+
+Own errors, this stretch: a `pkill -f` in crash.py matched my own ssh command and left the island down; removed, children killed via /proc. Edited hs.sh in place while a run read it; restored at once, and scripts now go through a new file and `mv`.
+
+## 6 Nov, p3 holds on rig v3.1, BURN=8, solo (`/root/objc3/w/p3h.sum`)
+
+| run | build | users | length | K6 p95 / p99 | max ms | hold rps | app us/req (85-180, 270-359 s) | note |
+|---|---|---:|---|---|---:|---:|---|---|
+| E147 | p3 | 300k | 5 min | 8.7 / 240 | 10,276 | 31,705 | 23.61, 23.22 | pass |
+| E148 | p3 | 300k | 5 min | 7.8 / 131.8 | 5,435 | 31,728 | 24.16, 23.18 | pass |
+| E149 | p3 | 310k | 5 min | 10.4 / 177.2 | 4,887 | 32,778 | 23.28, 24.31 | pass, one rep; iowait 11 % left on CPU 0 |
+| E150 | p3 | 290k | 2 min | 8.9 / 155.9 | 6,280 | 30,663 | | pass |
+| E151 | p3 | 300k | 2 min | 8.7 / 138.1 | 2,141 | 31,740 | | pass |
+| E152 | p3 | 310k | 2 min | 10.7 / 196.8 | 5,520 | 32,765 | | pass |
+
+0 errors in all six. `2b4d6d8` on the same rig: 280k 123 / 590 (burner 6), 290k 1,435 / 1,755 (burner 8). The rig's rate is 105.8 req/s per 1,000 users against the scorer's 95.5 at 280k, cause unknown.
+
+E153 (p3, 300k, 2 min, `FRAG=1`): `fhog.py` maps 15,100 MiB, then frees single pages evenly until only the hog's size is held, so no free 2 MB block exists without compaction. Why: `defrag` is `madvise`, so a `MADV_HUGEPAGE` fault can reclaim and compact in the loop's own time, and the rig's 15 GB never fragments (`thp_fault_fallback` 2 in all runs since boot, `compact_stall` 315) while a 2 GB box might. The box stopped answering ping and ssh at about 17:13 UTC, during this queue. Dashboard (Denis, 17:36 UTC): Running, vCPU load 13 % (about one of 8), memory 15.4 / 16 GB, network flat since the same time. So the VM hangs inside the guest; my stress test is the likely cause, not proved. E154-E156 did not run.

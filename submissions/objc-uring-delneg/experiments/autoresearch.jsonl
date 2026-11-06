@@ -24,3 +24,13 @@
 {"exp": 101, "name": "v18 290k hold", "box": "Synteq", "harness": "rig v3 BURN=8 MEAS=300", "metric": "K6 p95/p99", "values": [24.5, 179], "kept": true}
 {"exp": 102, "name": "v18 300k hold", "box": "Synteq", "harness": "rig v3 BURN=8 MEAS=300", "metric": "K6 p95/p99", "values": [23.1, 114.2], "kept": true}
 {"exp": 103, "name": "pass size 512/256/128 at 300k (H27)", "box": "Synteq", "harness": "rig v3 BURN=8 MEAS=120", "metric": "K6 p95/p99", "values": {"512": [[31.2, 850], [34.3, 910]], "256": [[12.6, 134], [16.7, 290]], "128": [[7.7, 116.6], [8.2, 130.5]]}, "kept": true, "note": "E103-E108, interleaved"}
+{"exp": 129, "name": "VFS + huge 300k hold, E129/E140/E142", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=300", "metric": "K6 p95/p99, app us/req", "values": [[7.1, 102, 23.2], [10.2, 193, 25.0], [12.8, 255, 25.3]], "kept": true}
+{"exp": 135, "name": "p1 300k hold, E135/E136", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=300", "metric": "K6 p95/p99, app us/req", "values": [[11.9, 245, 25.9], [18.9, 1110, 26.6]], "kept": false, "note": "E136 fails p99"}
+{"exp": 139, "name": "per-position cursors 300k hold, E139/E141", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=300", "metric": "K6 p95/p99, app us/req", "values": [[9.2, 152, 24.3], [6.9, 96.4, 23.3]], "kept": true}
+{"exp": 147, "name": "p3 300k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=300", "metric": "K6 p95/p99", "values": [8.7, 240.0], "kept": true}
+{"exp": 148, "name": "p3 300k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=300", "metric": "K6 p95/p99", "values": [7.8, 131.8], "kept": true}
+{"exp": 149, "name": "p3 310k hold", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=300", "metric": "K6 p95/p99", "values": [10.4, 177.2], "kept": true}
+{"exp": 150, "name": "p3 290k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=120", "metric": "K6 p95/p99", "values": [8.9, 155.9], "kept": true}
+{"exp": 151, "name": "p3 300k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=120", "metric": "K6 p95/p99", "values": [8.7, 138.1], "kept": true}
+{"exp": 152, "name": "p3 310k probe", "box": "Synteq", "harness": "rig v3.1 BURN=8 MEAS=120", "metric": "K6 p95/p99", "values": [10.7, 196.8], "kept": true}
+{"exp": 153, "name": "p3 300k probe with a fragmenting hog", "box": "Synteq", "harness": "rig v3.1 BURN=8 FRAG=1", "metric": "none", "values": null, "kept": false, "note": "box hung during the queue; void"}
