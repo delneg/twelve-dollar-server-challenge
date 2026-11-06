@@ -64,3 +64,11 @@ H16 status, after the scorer's run: no change in the scorer's us/req at 280k (27
 
 Dropped up front: closing idle sockets to shorten the established-hash chains (lookup 12-14 % of CPU), since each reconnect costs far more; zero-copy send (loopback/veth copies anyway, so unmeasurable here).
 --- LIST LOCKED 2026-11-06T12:30Z ---
+
+Added 6 Nov 13:30Z, after the list above was locked:
+
+| id | idea | why | expected | how to test |
+|---|---|---|---|---|
+| H27 | Fewer answers per pass (`--answers=128`) | a request waits one to two passes; at 512 answers and 100 % CPU that spans the 40 ms delayed-ACK timer | smaller parked set at the ramp's end | interleaved 2-minute probes at 300k |
+| H28 | Overwrite the WAL after a rewind instead of truncating (`journal_size_limit` above the WAL's size) | truncation re-allocates and zeroes every WAL page each cycle | under 1 % CPU; may cost at the memory wall (old-page reads) | A/B, then 320k |
+

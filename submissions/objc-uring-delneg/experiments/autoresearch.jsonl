@@ -20,3 +20,7 @@
 {"exp":65,"name":"v13 old end capped at half until 2x lifoage","box":"Synteq","harness":"SRVMB=1850 BURN=8 MEAS=300","metric":"p95/p99","values":{"a250_320k":[[525,620],[940,1475]],"a250_310k":[515,725],"a300_320k":[715,1370],"a200_320k":[1330,1670],"a225_320k":[500,905],"a225_310k":[53,425]},"kept":true,"note":"225 default; v12 at 320k 1205/1375"}
 {"exp":66,"name":"v14 seven eighths at 4x lifoage","box":"Synteq","harness":"SRVMB=1850 BURN=8 MEAS=300","metric":"p95/p99","values":{"a150_320k":[2040,5320],"a200_320k":[1065,1705],"a150_310k":[395,655]},"kept":false}
 {"exp":67,"name":"--cache=80000","box":"Synteq","harness":"SRVMB=1850 BURN=8 MEAS=300","metric":"p95/p99","values":{"310k":[925,1050]},"kept":false}
+{"exp": 100, "name": "v18 300k probe", "box": "Synteq", "harness": "rig v3 BURN=8 MEAS=120 perf", "metric": "K6 p95/p99", "values": [35.4, 5320], "kept": true}
+{"exp": 101, "name": "v18 290k hold", "box": "Synteq", "harness": "rig v3 BURN=8 MEAS=300", "metric": "K6 p95/p99", "values": [24.5, 179], "kept": true}
+{"exp": 102, "name": "v18 300k hold", "box": "Synteq", "harness": "rig v3 BURN=8 MEAS=300", "metric": "K6 p95/p99", "values": [23.1, 114.2], "kept": true}
+{"exp": 103, "name": "pass size 512/256/128 at 300k (H27)", "box": "Synteq", "harness": "rig v3 BURN=8 MEAS=120", "metric": "K6 p95/p99", "values": {"512": [[31.2, 850], [34.3, 910]], "256": [[12.6, 134], [16.7, 290]], "128": [[7.7, 116.6], [8.2, 130.5]]}, "kept": true, "note": "E103-E108, interleaved"}

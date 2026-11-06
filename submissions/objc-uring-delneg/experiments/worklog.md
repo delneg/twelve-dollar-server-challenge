@@ -473,3 +473,20 @@ Profile, v16 at 290k in the hold (E90): io_send 38 % with nested softirq, net_rx
 E100 is the first clean look at what the probe weighs. 2 minutes at 300k are 5.43M requests, so 1 % is 54k. Requests over 1 s at t=60-70 sum to about 91k, so a 2-minute probe fails on p99, while the same parked set in a 5-minute hold (about 11M requests, 1 % = 110k) passes. Capacity at t=45-60, with 5k new connections per second: about 27k req/s. Right after the ramp, with none: 35k req/s. So the question is the size of the parked set at ramp end.
 
 The scorer probes for 2 minutes first, so the parked set needs to stay under 1 % of a 2-minute run.
+
+v18 = strict newest-first, old end from 8 s (half a pass, all of it at 16 s), every ring deferred. BURN=8:
+
+| run | build | users | length | K6 p95 / p99 | Hold p95 / p99 | max s | note |
+|---|---|---:|---|---|---|---:|---|
+| E101 | v18 | 290k | 5 min | 24.5 / 179 | 20.6 / 73 | 8.7 | |
+| E102 | v18 | 300k | 5 min | 23.1 / 114 | 20 / 50 | 8.3 | |
+| E103 | v18, 512 answers | 300k | 2 min | 31.2 / 850 | 24.6 / 93 | 8.4 | |
+| E104 | v18 `--answers=256` | 300k | 2 min | 12.6 / 134 | | 6.5 | |
+| E105 | v18 `--answers=128` | 300k | 2 min | 7.7 / 116.6 | | 3.2 | |
+| E106 | v18, 512 answers | 300k | 2 min | 34.3 / 910 | | 9.5 | |
+| E107 | v18 `--answers=256` | 300k | 2 min | 16.7 / 290 | | 8.4 | |
+| E108 | v18 `--answers=128` | 300k | 2 min | 8.2 / 130.5 | | 6.6 | |
+
+H27 confirmed (new, not on the 12:30Z list, so a post-hoc addition): sends go out at the end of a pass, so a request that comes in during one pass is answered at the end of the next, between one and two pass lengths later. 512 answers at 100 % CPU take about 25 ms, so between 25 and 50 ms: half the replies are past the 40 ms delayed-ACK timer even under newest-first. 128 answers keep them far under it. The earlier A/B of pass size (E63, 310k, hold only, old rig) measured us/req in the hold and saw no gain, since the hold isn't where the tail is.
+
+Annotate of `post_view` (E100): the time is the inlined binary search of `sqlite3BtreeTableMoveto` (load of a cell pointer, then the varint at the cell), not record decoding. A faster descent would need our own walk of the page or writes to `BtCursor` fields, so H26 is dropped: ruling 8. `clear_page_erms`: 0.78 of its 1.25 % comes from ext4 page-cache allocation for WAL appends.
