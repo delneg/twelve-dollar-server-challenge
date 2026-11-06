@@ -423,3 +423,53 @@ E80, head `2b4d6d8` (v15), 320k, 5 min: rps 32,676, p50 25, p95 1,135, p99 1,260
 What that says about this harness: its OOM story held (memory down, no refusals, 0 errors at 290k and 300k), but it's too kind on tails. It passed that build at 310k twice, while the scorer fails it on p99 at 290k with CPU at 84 %, so the scorer's limit there isn't CPU saturation and something the rig doesn't reproduce holds requests back. Its p95 at 280k (190) is worse than #154's (35), and CPU per request at 280k didn't move (27 us both), against the ~5 % this rig showed for the page cache. Unverified guesses for the stall: slower disk on the VPS (WAL writes or dirty throttling blocking the loop, checkpoint holds), or the age rule itself. Next step would be to recalibrate on these points before any more tuning.
 
 Not verified: whether `2b4d6d8`, pushed about a minute after that comment and without having read it, helps on the scorer at all.
+
+## 6 Nov (ObjcTop2): rig v3 and the tail's real cause (Synteq `167.17.74.246`, `/root/objc3`, `hs.sh`, `ul3`)
+
+Rig v3, what changed from `/root/objc2/hs.sh`:
+- `ul3` (ul2 + k6's view): percentiles over the whole run (60 s ramp + hold + 30 s ramp-down + graceful 10 s, connect time excluded like `http_req_duration`), plus a per-second series. The old `ul2` measured only the hold from ramp + 10 s. **That omission was the main reason it overstated.**
+- CPU 0 island (`island.sh`): unbound workqueues (writeback, ext4), jbd2, kswapd, kcompactd, RCU threads and disk IRQs all on CPU 0, as on a 1-vCPU box. Before, they ran free on CPUs 1-7. `user.slice` (shells, generator) on 1-7.
+- Sampler: CPU 0 breakdown, app cgroup, ksoftirqd, kernel threads' ticks, TCP counters, in 5 s rows.
+- No TD_STATS by default. drop_caches before each run. Memory: SRVMB=1850 as before.
+
+Scorer vs rig v3, 2-minute probes (`197ad57` = a197, `2b4d6d8` = b2b4; K6 = whole run, Hold = hold only; ms):
+
+| build | users | BURN | K6 p95 / p99 | Hold p95 / p99 | scorer |
+|---|---:|---:|---|---|---|
+| a197 (E81) | 280k | 0 | 22 / 133 | 12 / 39 | pass (5 min 190 / 348) |
+| a197 (E82) | 290k | 0 | 70 / 450 | 12 / 41 | fail p99 1.05 s |
+| a197 (E83) | 300k | 0 | 395 / 1,010 | 16 / 58 | fail p99 2.33 s |
+| a197 (E85) | 290k | 6 | 395 / 960 | 14 / 52 | fail p99 1.05 s |
+| a197 (E87) | 280k | 6 | 18 / 128 | 18 / 175 | pass |
+| b2b4 (E86) | 290k | 6 | 24 / 425 | 14 / 62 | fail p95 1.13 s |
+| b2b4 (E88) | 280k | 6 | 123 / 590 | 11 / 33 | 2-min p95 438 / p99 728 pass |
+| b2b4 (E89, perf on) | 290k | 8 | 1,435 / 1,755 | 25 / 415 | fail p95 1.13 s |
+
+E84 was a void repeat (burner refused by the island's cpuset; ran as BURN=0). App CPU per request here 24-25 us against the scorer's 27, so BURN=6-8 stands in for the missing cost (virtio exits, fq_codel; unverified which). Not done: running other entries as reference points; the harness refused running other contestants' scripts, so #264 and #245 are read, not run.
+
+**Proven on the rig: the tail isn't in the hold, it's in the last 15 s of the ramp.** Hold-only p99 stays under 100 ms at 290k and 300k while the whole-run p99 fails. In E89 all of t=50-65 s sits at mean 0.5-1.7 s; the rest of the run is clean. In a 2-minute probe 1 % of requests is only ~1.65 s of traffic, so one such spike fails it, and the search never gets to try a hold at that level. That also explains why the scorer's 2-min p95/p99 are worse than its 5-min ones at the same users.
+
+Why the spike happens (E90 counters, 290k, t=50-60): connections 5.1k/s still arriving (perf: accept + handshake about 10 % of CPU), the request rate at its peak, CPU 100 %. Once replies pass 40 ms the delayed-ACK timer fires per request: DelayedACKs 24k/s, OutSegs 87k/s against 60-65k/s, so capacity falls about 20 % and requests fall behind further (23-25k req/s served against 30k asked). Then a 35k req/s catch-up and echoes at t+20 s (one cycle), e.g. busy 97 % at t=100.
+
+## 6 Nov (ObjcTop2): first code runs on rig v3 (BURN=8 unless noted)
+
+| run | build | users | length | K6 p95 / p99 | Hold p95 / p99 | note |
+|---|---|---:|---|---|---|---|
+| E89 | b2b4 | 290k | 2 min, perf | 1,435 / 1,755 | 25 / 415 | |
+| E90 | v16 (all rings deferred) | 290k | 2 min, perf | 885 / 1,720 | 19 / 73 | p50 1.15 vs 3.85, app CPU same 74.8 |
+| E91 | v16 | 290k | 2 min | 870 / 2,180 | 13 / 33 | |
+| E92 | v16 --lifoage=2000 | 290k | 2 min | 24.9 / 430 | 13.6 / 33 | pass |
+| E93 | v16 --lifo=0 | 290k | 2 min | 820 / 1,285 | 100 / 265 | oldest-first fails |
+| E94 | v17 --lifoage=2000 | 300k | 2 min | 90 / 3,830 | 15.6 / 36 | collapse t=54-67 |
+| E95 | v17 --lifoage=60000 --lifomin=0 | 300k | 5 min | 22 / 128.6 | 14 / 30 | max 7.8 s, pass, one rep |
+| E96 | v17 --lifoage=2000 --wwin=20 | 300k | 2 min | 960 / 3,685 | 38 / 1,245 | app 77.5 vs 74; wrMB -30 %, child ticks 569 vs 660; no gain seen, not a clean A/B |
+| E97 | v17 strict newest-first | 310k | 5 min | 78 / 5,320 | 35 / 420 | app 84.6, iow 5: saturated, max 17 s |
+| E98 | v17 strict newest-first | 320k | 5 min | 4,600 / 5,320 | 765 / 5,320 | memory wall: scanK 424k, majf 8.9k per 5 s |
+| E99 | stopped | 330k | | | | void, counted |
+| E100 | v18 (lifoage 8000, lifomin 0), perf | 300k | 2 min | 35.4 / 5,320 | 22.8 / 93 | max 8.8 s |
+
+Profile, v16 at 290k in the hold (E90): io_send 38 % with nested softirq, net_rx_action 33 %, __inet_lookup_established 12.5-14 %, pwrite 5.2 %, checkpointer child about 4.7 % of app, post_view 7.7 %, TDStore feed 3.5 %, onCQE 2.2 %, io_cqring_wait 2.6 %, clear_page_erms 2 %, AppArmor hooks about 2.8 %, fdatasync 0.8 %, timers 2 %. Ramp window (t=45-55): io_accept 2.8 %, tcp_v4_conn_request 1.7 %, tcp_check_req 1.55 %, tcp_rcv_state_process 2.3 %.
+
+E100 is the first clean look at what the probe weighs. 2 minutes at 300k are 5.43M requests, so 1 % is 54k. Requests over 1 s at t=60-70 sum to about 91k, so a 2-minute probe fails on p99, while the same parked set in a 5-minute hold (about 11M requests, 1 % = 110k) passes. Capacity at t=45-60, with 5k new connections per second: about 27k req/s. Right after the ramp, with none: 35k req/s. So the question is the size of the parked set at ramp end.
+
+The scorer probes for 2 minutes first, so the parked set needs to stay under 1 % of a 2-minute run.

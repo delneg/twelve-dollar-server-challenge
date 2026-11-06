@@ -48,3 +48,19 @@ H17 status: dropped, 512 stays. 128 and 64 show no clear gain over two pairs.
 Cache cap to delay the memory wall (`--cache=80000`): dropped after one rep, CPU per request rose to 19.7 us.
 H15 status, after the scorer's run: accepted under rule 7 by the review, but p95 at 280k rose to 190 from 35 and 290k fails p99. Open whether the queue order is part of that.
 H16 status, after the scorer's run: no change in the scorer's us/req at 280k (27 both, rounded).
+
+--- ObjcTop2, 6 Nov. New list after rig v3 (worklog, 6 Nov). Goal: the 2-minute probe at 290k+ passes in k6's view (whole run). Ranked by expected effect at the end of the ramp. ---
+| id | idea | assumption it challenges | expected | rule check | cost |
+|---|---|---|---|---|---|
+| H18 | Newest first with the old end's share kept small for far longer (`--lifoage` 2 s+, `--lifomin`) | past 450 ms the whole pass should go to the old end | no delayed-ACK storm: capacity stays up, only the excess waits | ordering only, already reviewed | flag |
+| H19 | Group commit window for writes (`--wwin`, ~20 ms) | one commit per pass is fine | frames per write about halved, so less pwrite (5 % of CPU) and checkpoint (4.7 %) | rule 6 explicitly allows it: the 201 waits for its COMMIT | 10 lines |
+| H20 | All rings DEFER_TASKRUN, entered in turn (`--rdefer`), idea from #264 | task work that isn't deferred is as cheap | smaller p50, fewer wake-ups; CPU to be measured | fine | 20 lines, done |
+| H21 | Checkpointer gives way when the loop is saturated (`--cknice`, or no pass while a backlog stands) | nice 0 is harmless | up to 4 % more CPU in the worst 15 s | own process; #245 and #278 use nice | flag |
+| H22 | WAL write through a shim VFS, one pwrite per commit, idea from #245 (own code) | two pwrites per frame are cheap | pwrite share down; #245 measured a small effect, so test after H19 | public VFS API, as #245 | 80 lines |
+| H23 | Send without a success CQE (`MSG_DONTWAIT|MSG_WAITALL`, `IOSQE_CQE_SKIP_SUCCESS`) and a per-pass response arena | a CQE per send is free | fewer TDConn cache misses, no pool: 1-2 % | fine | 100 lines |
+| H24 | Longer wait per pass (`--bwait`) now that rings are entered in turn | 1 ms is right | fewer enters and timers (`io_cqring_wait` 2.6 %) | fine | flag |
+| H25 | Reno on the listener (`TCP_CONGESTION`), `TCP_DEFER_ACCEPT` | cubic and a separate handshake ACK cost nothing | under 1 % each, to be measured | per-socket options on our own sockets, no sysctl | 2 lines |
+| H26 | Author lookups in `/feed`: `post_view` is 6-8 % of CPU, 20 root-to-leaf descents | cursor descents are cheap enough | up to 3 % with own group descent (#245's idea) | read-only pager calls, as #245; check ruling 8 | 80 lines; later |
+
+Dropped up front: closing idle sockets to shorten the established-hash chains (lookup 12-14 % of CPU), since each reconnect costs far more; zero-copy send (loopback/veth copies anyway, so unmeasurable here).
+--- LIST LOCKED 2026-11-06T12:30Z ---
