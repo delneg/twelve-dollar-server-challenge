@@ -518,3 +518,19 @@ Rig note: hs.sh sized the memory hog from MemAvailable right after the last run'
 
 Memory at 300k, 100 s into E126, /proc/slabinfo halved where both sides count: TCP 2,368 B (not charged to the app's cgroup, it's allocated in softirq), sock_inode_cache 832, filp 256, dentry 192, lsm_file 32, plus io_kiocb 256 on our side only: about 3.75 KB per connection, 1.13 GB. Cgroup: anon 106 MB, file 42 MB, slab 480 MB.
 
+p1 = minimal head: `2b4d6d8` + all rings deferred + strict newest-first with an 8 s bound + 128 answers; no VFS, no huge pages. Clean install of p1: Docker `ubuntu:24.04` on Synteq, `--cpus=1 --memory=2g`, kernel 6.8.0-147, install.sh 73 s, build + 42 tests 88 s, 42/42.
+
+| run | build | users | length | K6 p95 / p99 | app us/req by window (85-180, 180-270, 270-359 s) | note |
+|---|---|---:|---|---|---|---|
+| E129 | v21 VFS + huge | 300k | 5 min | 7.1 / 102 | 23.02, 23.15, 23.44 | max 5.4 s |
+| E130 | v21 VFS only | 300k | 5 min | 8.8 / 125 | 24.53, 25.31, 25.13 | max 2.5 s |
+| E131 | p1, `perf stat -p` with tracepoints | 300k | 5 min | 4,055 / 5,320 | | void: softirq up by half for exactly the perf window, t=120-240 |
+| E135 | p1 | 300k | 5 min | 11.9 / 245 | 25.05, 26.12, 26.48 | |
+| E136 | p1 | 300k | 5 min | 18.9 / 1,110 | 26.13, 27.09, 26.70 | fail on p99: spikes through the whole hold at 100 % busy |
+| E137 | p1 | 290k | 2 min | 9.6 / 156 | | |
+| E138 | p1 | 300k | 2 min | 10.0 / 164 | | |
+
+Corrects two earlier calls. The 2-minute A/Bs (E116-E125) saw huge pages and the VFS as noise, since a 2-minute run has about 95 s of steady hold and the differences grow with time. Over 5 minutes both are real: about -1.2 us/req for the VFS (E130 against E135, E136) and about -2 us/req for huge pages (E129 against E130), one or two reps each. So p1 isn't the head to push. Repeats of E129 are queued against the next idea.
+
+Annotate-driven idea (own, H41): `sqlite3BtreeTableMoveto` returns at once from a cursor already on the key, so one cursor per position in the feed (20 for posts, 20 for authors) skips the descents for all feeds of a pass but the first. Same public cursor API, no private state written, each request still decodes its rows from SQLite's page.
+

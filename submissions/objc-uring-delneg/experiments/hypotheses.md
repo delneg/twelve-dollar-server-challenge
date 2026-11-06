@@ -93,3 +93,6 @@ Reason, Denis: "experiment is experiment no matter the scope of the rewrite, it 
 
 Consilium 6 Nov (`consult` session 1106-165357-5619, DeepSeek Flash and Gemini 3 Pro, $0.023 DeepSeek plus Gemini's unlisted cost). Rejected, with why: drop rule 5 or denormalise (rules 3 and 5 forbid both); conntrack or tcp_mem as the wall (no conntrack on the scorer per LEADERBOARD; `tcp` pages stay under 2,000 here); batched `REGISTER_FILES_UPDATE` (we accept into direct slots, no such call); "13.8 % lookup isn't credible" (each chain step touches two cache lines of a cold socket, 9 steps average at 18 per bucket, about 1.7 us per packet, which fits). Taken: both models call H31, H32, H39 a waste, and both favour `TCP_DEFER_ACCEPT` and the small buffers, so those go first; measure a connection's cost before optimising it.
 
+| H41 | One cursor per feed position (20 posts, 20 authors), kept for the pass | stock `sqlite3BtreeTableMoveto` returns at once when the cursor is on the key; `post_view` is 6 % of CPU and nearly all of it is that search | -4 to -7 % CPU | 5-minute holds, interleaved | |
+| H42 | `glibc.malloc.hugetlb=1` from start.sh, huge pages for the rest of the heap | H29 worked on the page cache and slab | under 1 % | A/B | |
+
