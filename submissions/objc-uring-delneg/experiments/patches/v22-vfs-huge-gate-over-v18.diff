@@ -1,0 +1,365 @@
+diff --git a/submissions/objc-uring-delneg/src/main.m b/submissions/objc-uring-delneg/src/main.m
+index 5ae384a..4ff8706 100644
+--- a/submissions/objc-uring-delneg/src/main.m
++++ b/submissions/objc-uring-delneg/src/main.m
+@@ -17,9 +17,9 @@
+ extern long long td_opt_mmap;
+ extern int td_opt_btree;
+ extern int td_opt_ckpass, td_opt_rearm, td_opt_cq, td_opt_cachekb, td_opt_cknice, td_opt_lock, td_opt_jsl, td_opt_warm, td_opt_ckdrop, td_opt_onewrite;
+-extern uint32_t td_opt_lifomin, td_opt_wwin, td_opt_poolcap, td_opt_poolmax, td_opt_answers, td_opt_lifoage, td_opt_lifocap, td_opt_bufs;
+-extern int td_opt_lifo, td_opt_pcache, td_opt_rdefer;
+-int td_opt_defacc = 0;   // --defacc=SECONDS: TCP_DEFER_ACCEPT on the listener
++extern uint32_t td_opt_gate, td_opt_lifomin, td_opt_wwin, td_opt_poolcap, td_opt_poolmax, td_opt_answers, td_opt_lifoage, td_opt_lifocap, td_opt_bufs;
++extern int td_opt_lifo, td_opt_pcache, td_opt_rdefer, td_opt_walbuf;
++int td_opt_backlog = 65535, td_opt_defacc = 0, td_opt_thin = 0, td_opt_rcvbuf = 0, td_opt_sndbuf = 0; static const char *td_opt_cc = NULL; extern int td_opt_huge;   // --defacc=SECONDS: TCP_DEFER_ACCEPT on the listener
+ 
+ // Locks the code and read-only data of the binary and its libraries in RAM, up to RLIMIT_MEMLOCK (8 MB under systemd).
+ // With no swap, reclaim at the memory wall takes file-backed pages first, and the loop would stall on major faults
+@@ -48,10 +48,14 @@ static int listen_on(const char *host, int port) {
+     setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof one);
+     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+     if (td_opt_defacc > 0) setsockopt(fd, IPPROTO_TCP, TCP_DEFER_ACCEPT, &td_opt_defacc, sizeof td_opt_defacc);
++    if (td_opt_cc) setsockopt(fd, IPPROTO_TCP, TCP_CONGESTION, td_opt_cc, (socklen_t)strlen(td_opt_cc));
++    if (td_opt_thin) setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &td_opt_thin, sizeof td_opt_thin);
++    if (td_opt_rcvbuf) setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &td_opt_rcvbuf, sizeof td_opt_rcvbuf);
++    if (td_opt_sndbuf) setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &td_opt_sndbuf, sizeof td_opt_sndbuf);
+     struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons((uint16_t)port) };
+     if (inet_pton(AF_INET, host, &a.sin_addr) != 1) { fprintf(stderr, "bad HOST %s\n", host); exit(1); }
+     if (bind(fd, (struct sockaddr *)&a, sizeof a) < 0) { perror("bind"); exit(1); }
+-    if (listen(fd, 65535) < 0) { perror("listen"); exit(1); }
++    if (listen(fd, td_opt_backlog) < 0) { perror("listen"); exit(1); }
+     return fd;
+ }
+ 
+@@ -83,6 +87,14 @@ int main(int argc, char **argv) {
+         else if (!strncmp(argv[i], "--lifocap=", 10)) td_opt_lifocap = (uint32_t)atoi(argv[i] + 10);
+         else if (!strncmp(argv[i], "--bufs=", 7)) td_opt_bufs = (uint32_t)atoi(argv[i] + 7);
+         else if (!strncmp(argv[i], "--pcache=", 9)) td_opt_pcache = atoi(argv[i] + 9);
++        else if (!strncmp(argv[i], "--walbuf=", 9)) td_opt_walbuf = atoi(argv[i] + 9);
++        else if (!strncmp(argv[i], "--huge=", 7)) td_opt_huge = atoi(argv[i] + 7);
++        else if (!strncmp(argv[i], "--gate=", 7)) td_opt_gate = (uint32_t)atoi(argv[i] + 7);
++        else if (!strncmp(argv[i], "--backlog=", 10)) td_opt_backlog = atoi(argv[i] + 10);
++        else if (!strncmp(argv[i], "--cc=", 5)) td_opt_cc = argv[i] + 5;
++        else if (!strncmp(argv[i], "--thin=", 7)) td_opt_thin = atoi(argv[i] + 7);
++        else if (!strncmp(argv[i], "--rcvbuf=", 9)) td_opt_rcvbuf = atoi(argv[i] + 9);
++        else if (!strncmp(argv[i], "--sndbuf=", 9)) td_opt_sndbuf = atoi(argv[i] + 9);
+         else if (!strncmp(argv[i], "--lifoage=", 10)) td_opt_lifoage = (uint32_t)atoi(argv[i] + 10);
+         else if (!strncmp(argv[i], "--jsl=", 6)) td_opt_jsl = atoi(argv[i] + 6);
+         else if (!strncmp(argv[i], "--onewrite=", 11)) td_opt_onewrite = atoi(argv[i] + 11);
+diff --git a/submissions/objc-uring-delneg/src/server.m b/submissions/objc-uring-delneg/src/server.m
+index 56987a0..72f34ac 100644
+--- a/submissions/objc-uring-delneg/src/server.m
++++ b/submissions/objc-uring-delneg/src/server.m
+@@ -97,11 +97,12 @@ - (int)handle:(TDReq *)r worker:(TDWorker *)w body:(TDBuf *)b {
+ void td_lock_code(void);
+ int td_opt_onewrite = 1;   // --onewrite=0|1
+ int td_opt_rearm = 2048;   // --rearm=N: receives re-armed per ring per pass (0: all at once)
+-uint32_t td_opt_answers = 512;    // --answers=N: requests answered per pass; the rest stay parked in the batch (0: all)
++uint32_t td_opt_answers = 128;    // --answers=N: requests answered per pass; the rest stay parked in the batch (0: all)
+ int td_opt_lifo = 1;              // --lifo=0|1: past one pass of backlog, answer the newest first
+ uint32_t td_opt_lifocap = 4;      // --lifocap=N: eighths of a pass the old end gets at --lifoage
+ uint32_t td_opt_lifomin = 0;      // --lifomin=N: eighths of a pass the old end gets before --lifoage
+ uint32_t td_opt_lifoage = 8000;   // --lifoage=MS: from this age the old end gets --lifocap eighths of a pass, from twice this age all of it
++uint32_t td_opt_gate = 0;         // --gate=N: no new connections are accepted while more than N passes of requests wait; 0: always accept
+ uint32_t td_opt_wwin = 0;         // --wwin=MS: writes commit at most once per this many ms (group commit window)
+ 
+ // ---------------------------------------------------------------- helpers
+@@ -172,6 +173,8 @@ @implementation TDWorker {
+     TDAuth *auth;
+     int64_t started, now;
+     uint32_t passMs, lastWriteMs, nHeldNow;
++    uint64_t gates;
++    int gateRing;     // the ring whose accept the gate cancelled, or -1
+     // batch
+     TDReq *reqs;              // parsed requests waiting for an answer: reqs[reqHead..nreq), oldest first
+     uint32_t reqHead, nreq, reqCap;
+@@ -215,13 +218,14 @@ - (instancetype)initWithConfig:(const TDWorkerConfig *)cfg {
+     ckDone = cfg->ckptDone;
+     uint32_t margin = slots / 4 < 4096 ? slots / 4 : 4096;   // > a listen backlog's burst (somaxconn 4096)
+     highWater = slots - margin;
++    gateRing = -1;
+     lowGap = margin / 2;
+     listenFd = cfg->listenFd;
+     nrings = cfg->rings < 1 ? 1 : cfg->rings > MAX_RINGS ? MAX_RINGS : cfg->rings;
+     connClass = objc_getClass("TDConn");
+     stride = (class_getInstanceSize(connClass) + 15) & ~(size_t)15;
+-    slab = mmap(NULL, stride * slots * (size_t)nrings, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+-    if (slab == MAP_FAILED) { perror("mmap slab"); exit(1); }
++    slab = td_huge(stride * slots * (size_t)nrings);
++    if (!slab) { perror("mmap slab"); exit(1); }
+     reqCap = 1024;
+     reqs = malloc(sizeof(TDReq) * reqCap);
+     dirty = malloc(sizeof(uint32_t) * slots * (size_t)nrings);
+@@ -293,8 +297,8 @@ - (bool)setupRing:(int)k TD_DIRECT {
+     if (ret < 0) { fprintf(stderr, "register_files_sparse(%u): %s\n", slots, strerror(-ret)); io_uring_queue_exit(&rs->ring); return false; }
+     rs->br = setup_buf_ring(&rs->ring, k);
+     if (!rs->br) { io_uring_queue_exit(&rs->ring); return false; }
+-    rs->bufs = mmap(NULL, (size_t)BUF_SIZE * BUF_COUNT, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+-    if (rs->bufs == MAP_FAILED) { io_uring_queue_exit(&rs->ring); return false; }
++    rs->bufs = td_huge((size_t)BUF_SIZE * BUF_COUNT);
++    if (!rs->bufs) { io_uring_queue_exit(&rs->ring); return false; }
+     rs->brMask = io_uring_buf_ring_mask(BUF_COUNT);
+     for (uint32_t i = 0; i < BUF_COUNT; i++)
+         io_uring_buf_ring_add(rs->br, rs->bufs + (size_t)i * BUF_SIZE, BUF_SIZE, (unsigned short)i, rs->brMask, (int)i);
+@@ -845,6 +849,30 @@ - (void)onCQE:(struct io_uring_cqe *)cqe ring:(int)k TD_DIRECT {
+     }
+ }
+ 
++// Admission control. A new connection costs about as much CPU as two requests (handshake, sockets, accept, first read),
++// and when requests are already waiting that CPU comes out of the requests being served. So while a backlog stands the
++// server stops accepting: the listen queue fills, the kernel drops further SYNs at little cost, and clients retry them.
++// Established connections keep all the CPU. The backlog ends, and accept comes back, within passes.
++- (void)gateCheck TD_DIRECT {
++    uint32_t waiting = nreq - reqHead;
++    if (gateRing < 0) {
++        if (waiting <= td_opt_gate * td_opt_answers) return;
++        for (int k = 0; k < nrings; k++) {
++            if (!R[k].acceptArmed) continue;
++            struct io_uring_sqe *cs = sqe_get(&R[k].ring);
++            io_uring_prep_cancel64(cs, UD(UD_ACCEPT, k, 0), 0);
++            io_uring_sqe_set_data64(cs, UD(UD_CLOSE, 0, 0xFFFFFF));
++            gateRing = k;
++            gates++;
++            return;
++        }
++    } else if (waiting <= td_opt_answers / 2 && !R[gateRing].acceptArmed) {
++        int q = [self acceptTarget];
++        gateRing = -1;
++        if (q >= 0 && ![self acceptArmedAnywhere]) [self armAccept:q];
++    }
++}
++
+ - (void)reap:(int)k TD_DIRECT {
+     struct io_uring *r = &R[k].ring;
+     unsigned head, n = 0;
+@@ -1001,6 +1029,7 @@ - (void)run {
+             if (TD_UNLIKELY(statsOn)) { nAns += before - (nreq - reqHead); nPass++; t3 = mono_s(); tEnter += t1 - t0; tReap += t2 - t1; tFlush += t3 - t2; }
+             [self ckptAfterFlush];
+         } else if (TD_UNLIKELY(statsOn)) { tEnter += t1 - t0; tReap += t2 - t1; }
++        if (td_opt_gate) [self gateCheck];
+         if (nrearm) {
+             // A burst empties the buffer ring and ends every other armed receive with ENOBUFS. Each socket still has
+             // its request queued, so re-arming them all at once only ends them again. A pass re-arms what the ring's
+diff --git a/submissions/objc-uring-delneg/src/store.m b/submissions/objc-uring-delneg/src/store.m
+index df959cb..29d1f81 100644
+--- a/submissions/objc-uring-delneg/src/store.m
++++ b/submissions/objc-uring-delneg/src/store.m
+@@ -12,6 +12,7 @@
+ int td_opt_ckpt = 250;    // wal_autocheckpoint pages (--ckpt=N): smaller, more frequent checkpoint stalls
+ int td_opt_ckptproc = 1; // --ckptproc=0: inline autocheckpoint, EXCLUSIVE locking
+ int td_opt_pcache = 1;   // --pcache=0|1: our page cache plugin, or SQLite's
++int td_opt_walbuf = 1;   // --walbuf=0|1: one pwrite per commit for the WAL, or SQLite's two per frame
+ int td_opt_warm = 1, td_opt_ckdrop = 1;   // --warm=0|1 --ckdrop=0|1
+ int td_opt_jsl = 0;   // --jsl=N: journal_size_limit bytes (-1: unlimited)
+ int td_opt_cachekb = 256000, td_opt_cknice = 0, td_opt_lock = 1;   // --cache=KB --cknice=N --lock=0|1
+@@ -67,6 +68,7 @@ static void exec(sqlite3 *db, const char *sql) {
+ - (instancetype)initWithPath:(const char *)path {
+     pthread_mutex_init(&lock, NULL);
+     if (td_opt_pcache) td_pcache_install();
++    if (td_opt_walbuf) td_vfs_install();
+     if (sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, NULL) != SQLITE_OK) {
+         fprintf(stderr, "open %s: %s\n", path, db ? sqlite3_errmsg(db) : "?");
+         exit(1);
+diff --git a/submissions/objc-uring-delneg/src/td.h b/submissions/objc-uring-delneg/src/td.h
+index d65ffec..63c23fa 100644
+--- a/submissions/objc-uring-delneg/src/td.h
++++ b/submissions/objc-uring-delneg/src/td.h
+@@ -30,6 +30,10 @@ __attribute__((objc_root_class))
+ - (instancetype)init;
+ @end
+ 
++// Zeroed anonymous memory on 2 MB pages where the kernel has them (--huge). Each is one TLB entry, and a TLB miss
++// under a hypervisor walks two page tables.
++void *td_huge(size_t n);
++
+ // ---------------------------------------------------------------- byte buffer
+ typedef struct {
+     char *p;
+diff --git a/submissions/objc-uring-delneg/src/td_btree.c b/submissions/objc-uring-delneg/src/td_btree.c
+index 982c0dd..7ed0e3e 100644
+--- a/submissions/objc-uring-delneg/src/td_btree.c
++++ b/submissions/objc-uring-delneg/src/td_btree.c
+@@ -11,6 +11,8 @@
+ 
+ _Static_assert(SQLITE_VERSION_NUMBER == 3054001, "check td_btree.c against this SQLite version");
+ 
++extern void *td_huge(size_t n);
++
+ static struct {
+     sqlite3 *db;
+     Pgno posts, users, top, likes;   /* root pages: posts, users, posts_created_at_id_idx, likes_post_id_idx */
+@@ -313,7 +315,8 @@ static TDPage *tdp_alloc(TDCache *c) {
+         c->capAll = cap;
+     }
+     if (!c->carveLeft) {
+-        u32 n = c->purgeable ? 64 : 4;
++        const size_t huge = (size_t)2 << 20;
++        u32 n = c->purgeable ? (u32)(huge / (u32)c->szAlloc) : 4;
+         if (c->nChunks == c->capChunks) {
+             u32 cap = c->capChunks ? c->capChunks * 2 : 16;
+             void **a = realloc(c->chunks, cap * sizeof *a);
+@@ -321,7 +324,7 @@ static TDPage *tdp_alloc(TDCache *c) {
+             c->chunks = a;
+             c->capChunks = cap;
+         }
+-        char *m = malloc((size_t)c->szAlloc * n);
++        char *m = c->purgeable ? td_huge(huge) : malloc((size_t)c->szAlloc * n);
+         if (!m) return 0;
+         c->chunks[c->nChunks++] = m;
+         c->carve = m;
+@@ -430,7 +433,10 @@ static void tdp_truncate(sqlite3_pcache *pc, unsigned limit) {
+ 
+ static void tdp_destroy(sqlite3_pcache *pc) {
+     TDCache *c = (TDCache *)pc;
+-    for (u32 i = 0; i < c->nChunks; i++) free(c->chunks[i]);
++    for (u32 i = 0; i < c->nChunks; i++) {
++        if (c->purgeable) munmap(c->chunks[i], (size_t)2 << 20);
++        else free(c->chunks[i]);
++    }
+     free(c->chunks);
+     free(c->all);
+     free(c->above);
+@@ -449,3 +455,108 @@ int td_pcache_install(void) {
+     };
+     return sqlite3_config(SQLITE_CONFIG_PCACHE2, &m);
+ }
++
++/* ---- one pwrite per commit for the WAL (https://sqlite.org/c3ref/vfs.html)
++** SQLite writes a WAL frame as two pwrites, a 24-byte header and the page, so a commit of n frames costs 2n syscalls,
++** each taking the inode lock, updating timestamps and walking the page cache. This VFS sits over the default one and
++** only touches WAL files: it keeps consecutive frames in a buffer and writes them at once when the page of the commit
++** frame arrives. SQLite publishes a commit in the WAL index only after that write returns, so no reader, the
++** checkpointer included, can look for a frame that isn't in the file, and a failed write fails the commit. Any other
++** use of the file writes the buffer first, which keeps every operation in SQLite's order. */
++typedef struct TDWalFile {
++    sqlite3_file base;
++    sqlite3_file *real;     /* the default VFS's file, behind this struct */
++    u8 *buf;
++    i64 start;              /* file offset of buf[0] */
++    i64 pageAt;             /* where the page of the header last seen goes; 0: no header waiting for its page */
++    i64 readAt;             /* last read: SQLite rewrites a header it just read to fix checksums, and no page follows */
++    u32 len;
++    int commit;             /* that header is a commit frame's */
++} TDWalFile;
++#define TDW_CAP 131071u     /* the unix VFS keeps the low 17 bits of a write's length, and calls a write it cut short SQLITE_FULL */
++
++static sqlite3_vfs tdv, *tdv_base;
++
++static int tdw_flush(TDWalFile *w) {
++    if (!w->len) return SQLITE_OK;
++    u32 n = w->len;
++    w->len = 0;
++    return w->real->pMethods->xWrite(w->real, w->buf, (int)n, w->start);
++}
++static int tdw_write(sqlite3_file *f, const void *z, int n, sqlite3_int64 off) {
++    TDWalFile *w = (TDWalFile *)f;
++    int rc, last = 0;
++    if (w->pageAt == off) last = w->commit;             /* the page of the header before it */
++    else if (n == 24 && off != w->readAt) w->commit = ((const u8 *)z)[4] | ((const u8 *)z)[5] | ((const u8 *)z)[6] | ((const u8 *)z)[7];   /* nonzero: db size after commit */
++    else {                                              /* the WAL header, or a page or header rewritten in place */
++        w->pageAt = 0;
++        if ((rc = tdw_flush(w))) return rc;
++        return w->real->pMethods->xWrite(w->real, z, n, off);
++    }
++    if (w->len && (off != w->start + w->len || w->len + (u32)n > TDW_CAP) && (rc = tdw_flush(w))) { w->pageAt = 0; return rc; }
++    if (!w->buf && !(w->buf = sqlite3_malloc(TDW_CAP))) { w->pageAt = 0; return w->real->pMethods->xWrite(w->real, z, n, off); }
++    if (!w->len) w->start = off;
++    memcpy(w->buf + w->len, z, (size_t)n);
++    w->len += (u32)n;
++    w->pageAt = w->pageAt == off ? 0 : off + n;
++    return last ? tdw_flush(w) : SQLITE_OK;
++}
++static int tdw_read(sqlite3_file *f, void *z, int n, sqlite3_int64 off) {
++    TDWalFile *w = (TDWalFile *)f;
++    int rc = tdw_flush(w);
++    w->readAt = off;
++    return rc ? rc : w->real->pMethods->xRead(w->real, z, n, off);
++}
++static int tdw_truncate(sqlite3_file *f, sqlite3_int64 size) {
++    TDWalFile *w = (TDWalFile *)f;
++    int rc = tdw_flush(w);
++    w->pageAt = 0;
++    return rc ? rc : w->real->pMethods->xTruncate(w->real, size);
++}
++static int tdw_sync(sqlite3_file *f, int flags) {
++    TDWalFile *w = (TDWalFile *)f;
++    int rc = tdw_flush(w);
++    return rc ? rc : w->real->pMethods->xSync(w->real, flags);
++}
++static int tdw_size(sqlite3_file *f, sqlite3_int64 *size) {
++    TDWalFile *w = (TDWalFile *)f;
++    int rc = tdw_flush(w);
++    return rc ? rc : w->real->pMethods->xFileSize(w->real, size);
++}
++static int tdw_close(sqlite3_file *f) {
++    TDWalFile *w = (TDWalFile *)f;
++    int rc = tdw_flush(w), rc2 = w->real->pMethods->xClose(w->real);
++    sqlite3_free(w->buf);
++    w->buf = 0;
++    return rc ? rc : rc2;
++}
++static int tdw_lock(sqlite3_file *f, int l) { return ((TDWalFile *)f)->real->pMethods->xLock(((TDWalFile *)f)->real, l); }
++static int tdw_unlock(sqlite3_file *f, int l) { return ((TDWalFile *)f)->real->pMethods->xUnlock(((TDWalFile *)f)->real, l); }
++static int tdw_checklock(sqlite3_file *f, int *r) { return ((TDWalFile *)f)->real->pMethods->xCheckReservedLock(((TDWalFile *)f)->real, r); }
++static int tdw_control(sqlite3_file *f, int op, void *a) { return ((TDWalFile *)f)->real->pMethods->xFileControl(((TDWalFile *)f)->real, op, a); }
++static int tdw_sector(sqlite3_file *f) { return ((TDWalFile *)f)->real->pMethods->xSectorSize(((TDWalFile *)f)->real); }
++static int tdw_devchar(sqlite3_file *f) { return ((TDWalFile *)f)->real->pMethods->xDeviceCharacteristics(((TDWalFile *)f)->real); }
++
++static int tdv_open(sqlite3_vfs *v, sqlite3_filename name, sqlite3_file *f, int flags, int *out) {
++    (void)v;
++    static const sqlite3_io_methods m = {
++        1, tdw_close, tdw_read, tdw_write, tdw_truncate, tdw_sync, tdw_size, tdw_lock, tdw_unlock, tdw_checklock,
++        tdw_control, tdw_sector, tdw_devchar
++    };
++    if (!(flags & SQLITE_OPEN_WAL)) return tdv_base->xOpen(tdv_base, name, f, flags, out);
++    TDWalFile *w = (TDWalFile *)f;
++    memset(w, 0, sizeof *w);
++    w->real = (sqlite3_file *)(w + 1);
++    int rc = tdv_base->xOpen(tdv_base, name, w->real, flags, out);
++    w->base.pMethods = rc == SQLITE_OK ? &m : 0;
++    return rc;
++}
++
++int td_vfs_install(void) {
++    if (!(tdv_base = sqlite3_vfs_find(0))) return SQLITE_ERROR;
++    tdv = *tdv_base;
++    tdv.zName = "td-wal";
++    tdv.szOsFile = tdv_base->szOsFile + (int)sizeof(TDWalFile);
++    tdv.xOpen = tdv_open;
++    return sqlite3_vfs_register(&tdv, 1);
++}
+diff --git a/submissions/objc-uring-delneg/src/td_btree.h b/submissions/objc-uring-delneg/src/td_btree.h
+index 4fa45a1..f4d320a 100644
+--- a/submissions/objc-uring-delneg/src/td_btree.h
++++ b/submissions/objc-uring-delneg/src/td_btree.h
+@@ -19,3 +19,5 @@ void td_bt_end(void);               // closes the cursors: before COMMIT or ROLL
+ 
+ /* Before the first sqlite3_open: SQLITE_OK, or SQLite's refusal when it already started. */
+ int td_pcache_install(void);
++/* Before the first sqlite3_open: registers the VFS that writes each commit's WAL frames with one pwrite. */
++int td_vfs_install(void);
+diff --git a/submissions/objc-uring-delneg/src/util.m b/submissions/objc-uring-delneg/src/util.m
+index ee57855..4dd43eb 100644
+--- a/submissions/objc-uring-delneg/src/util.m
++++ b/submissions/objc-uring-delneg/src/util.m
+@@ -1,5 +1,20 @@
+ // Root class, byte buffers and a small validating JSON reader.
+ #include "td.h"
++#include <sys/mman.h>
++
++int td_opt_huge = 1;   // --huge=0|1
++void *td_huge(size_t n) {
++    const size_t h = (size_t)2 << 20;
++    n = (n + h - 1) & ~(h - 1);
++    char *p = mmap(NULL, n + h, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
++    if (p == MAP_FAILED) return NULL;
++    char *a = (char *)(((uintptr_t)p + h - 1) & ~(uintptr_t)(h - 1));
++    if (a > p) munmap(p, (size_t)(a - p));
++    munmap(a + n, (size_t)(p + h - a));
++    if (td_opt_huge) madvise(a, n, MADV_HUGEPAGE);
++    return a;
++}
++
+ 
+ @implementation TDObject
+ + (instancetype)make {

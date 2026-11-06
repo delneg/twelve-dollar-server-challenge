@@ -18,3 +18,18 @@
 | start.sh restart loop | flag: Deno #119, c-epoll #64, raoz #26, Antheurus #65 | clear: `exec bin/server` |
 | Tokens without `exp` | flag list | clear: `exp` required |
 | Follow-up merges only if it beats the merged row | #319, #278, #293 comments | a PR must score above 280,000 to merge; head must not move during a run (#304 lost its merge that way): don't push while it's being scored |
+
+## 6 Nov, ObjcTop2, head with all rings deferred and 128 answers per pass
+
+| trap | status |
+|---|---|
+| Stock SQLite, public APIs, ruling 8 | no change to td_btree.c or store.m from `2b4d6d8` in this head; the VFS experiment stays out of it |
+| Rule 7, order of answers | strict newest-first past one pass of backlog, bounded (half a pass from 8 s, all of it from 16 s). No request dropped, nothing keyed on client or traffic shape; only the server's own queue. LEADERBOARD: "ordering routes or fast paths by observed traffic is fine" |
+| Rule 6 | unchanged: sends after COMMIT |
+| Rule 11 | no sysctls, no pinning, no capabilities beyond CAP_NET_BIND_SERVICE; nothing new in start.sh |
+| Rule 10 | clean `ubuntu:24.04` in Docker on Synteq, `--cpus=1 --memory=2g`, kernel 6.8.0-147: install.sh 73 s, build + 42 tests 88 s, 42/42 (source p1) |
+| Copies | idea of deferred task work on every ring from #264, read in its README and code; own code, credited in README |
+| Own folder | diff touches only `submissions/objc-uring-delneg/` |
+
+Not in this head, would need a look before any push: an accept gate (H30). It's admission control on our own queue, and k6 doesn't count connect time, so the README would have to say that plainly and let Arjay judge it.
+

@@ -490,3 +490,31 @@ v18 = strict newest-first, old end from 8 s (half a pass, all of it at 16 s), ev
 H27 confirmed (new, not on the 12:30Z list, so a post-hoc addition): sends go out at the end of a pass, so a request that comes in during one pass is answered at the end of the next, between one and two pass lengths later. 512 answers at 100 % CPU take about 25 ms, so between 25 and 50 ms: half the replies are past the 40 ms delayed-ACK timer even under newest-first. 128 answers keep them far under it. The earlier A/B of pass size (E63, 310k, hold only, old rig) measured us/req in the hold and saw no gain, since the hold isn't where the tail is.
 
 Annotate of `post_view` (E100): the time is the inlined binary search of `sqlite3BtreeTableMoveto` (load of a cell pointer, then the varint at the cell), not record decoding. A faster descent would need our own walk of the page or writes to `BtCursor` fields, so H26 is dropped: ruling 8. `clear_page_erms`: 0.78 of its 1.25 % comes from ext4 page-cache allocation for WAL appends.
+
+## 6 Nov (ObjcTop2): what the OOMs at 300-320k were
+
+E109 (v19 walbuf 300k), E111 (310k), E112 (320k) ended in global OOM and 75-81 % errors. Not a memory wall: a bug in my VFS. `unixWrite` keeps the low 17 bits of a write's length (`seekAndWriteFd`: `nBuf &= 0x1ffff`), so a buffered commit of 128 KB or more wrote part of it, then a zero-length write, then returned `SQLITE_FULL`. strace at 200k (E114): `pwrite64(6, ..., 55096, 70072) = 55096`, `pwrite64(6, ..., 0, 125168) = 0`, and the same offset written again after the rollback. The rollback emptied the page cache (957 DB reads in 8 s, none with `--walbuf=0`) and dropped the batch's connections (err 1.6-2 % at 200k), and at 300k the reconnect storm ran the box out of memory. Fixed by a 131,071-byte cap (v20).
+
+Rig note: hs.sh sized the memory hog from MemAvailable right after the last run's teardown, which varied the budget by up to 300 MB. Since E116 it uses a fixed 15,400 MiB (rig v3.1).
+
+| run | build | users | length | K6 p95 / p99 | app us/req | note |
+|---|---|---:|---|---|---:|---|
+| E109, E111, E112 | v19 | 300-320k | 2 min | | | void: the bug above |
+| E110 | v19 `--walbuf=0`, perf | 300k | 2 min | 21.8 / 5,320 | | perf at t=100 costs the tail; don't compare tails of perf runs |
+| E113, E114 | v19 | 200k | 1 min, ramp 30 | | | err 2.0, 1.6 %: the bug |
+| E115 | v19 `--walbuf=0` | 200k | 1 min, ramp 30 | 8.6 / 74 | | err 0 |
+| E116, E118 | v20 | 300k | 2 min | 13.4 / 595, 8.8 / 153 | 24.69, 24.01 | |
+| E117, E119 | v20 `--walbuf=0` | 300k | 2 min | 8.2 / 115, 10 / 173 | 24.53, 25.36 | |
+| E120 | v20 | 310k | 2 min | 12.8 / 545 | | pass |
+| E121 | v20 | 320k | 2 min | 5,320 / 5,320 | | 100 % CPU at 33.9k req/s, reclaim from t=130 |
+| E122, E124 | v21 huge | 300k | 2 min | 22.7 / 870, 11.4 / 370 | 25.72, 24.79 | |
+| E123, E125 | v21 `--huge=0` | 300k | 2 min | 16.8 / 3,700, 11.8 / 335 | 25.25, 24.38 | |
+| E126 | v21, perf and bpftrace | 300k | 2 min | 10.2 / 215 | 24.68 | |
+| E127 | v21 | 120k | void | | | bpftrace syntax error |
+| E128 | v21, bpftrace | 120k | 40 s | 4.0 / 52 | | item A below |
+| E129 | v21 | 300k | 5 min | 7.1 / 102 | 23.20 | max 5.4 s |
+
+**Item A (Opt): is the rig's profile true?** E128, bpftrace for 8 s at 12.6k req/s. `tcp_v4_rcv` on CPU 0: `veth1` only, 201k (2 per request). `veth0` (the generator's receive): 14.4k on each of CPUs 1-7, none on CPU 0. `io_send` on CPU 0: 100.8k. So no generator TCP receive is charged to the server's CPU; the kernel's ~70 % is server-side send and server-side receive nested in it. What the rig still lacks: virtio kicks and virtio IRQs (it has RPS IPIs instead, `asm_sysvec_call_function_single`), which the 8 % burner stands in for. Not measured on a droplet.
+
+Memory at 300k, 100 s into E126, /proc/slabinfo halved where both sides count: TCP 2,368 B (not charged to the app's cgroup, it's allocated in softirq), sock_inode_cache 832, filp 256, dentry 192, lsm_file 32, plus io_kiocb 256 on our side only: about 3.75 KB per connection, 1.13 GB. Cgroup: anon 106 MB, file 42 MB, slab 480 MB.
+

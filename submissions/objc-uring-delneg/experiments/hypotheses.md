@@ -72,3 +72,24 @@ Added 6 Nov 13:30Z, after the list above was locked:
 | H27 | Fewer answers per pass (`--answers=128`) | a request waits one to two passes; at 512 answers and 100 % CPU that spans the 40 ms delayed-ACK timer | smaller parked set at the ramp's end | interleaved 2-minute probes at 300k |
 | H28 | Overwrite the WAL after a rewind instead of truncating (`journal_size_limit` above the WAL's size) | truncation re-allocates and zeroes every WAL page each cycle | under 1 % CPU; may cost at the memory wall (old-page reads) | A/B, then 320k |
 
+## Structural round (6 Nov, Denis's order through Opt)
+
+Reason, Denis: "experiment is experiment no matter the scope of the rewrite, it can be reverted." Added before these were run. Everything must run with only `CAP_NET_BIND_SERVICE`.
+
+| id | idea | why | expected | how to test | state |
+|---|---|---|---|---|---|
+| H29 | 2 MB pages by `madvise` for the page cache, connection slab, receive buffers | a TLB miss under a hypervisor walks two page tables; `post_view` is mostly a binary search over scattered 4 KB pages | -2 to -5 % CPU (guess) | A/B, cycles per request | |
+| H30 | Admission control: no accept while a backlog of requests stands, small listen queue | a connection costs about 40 us (ramp-end capacity 27-30k req/s against 35k), and takes it from requests being served; SYNs dropped at a full queue cost little and clients retry | parked set at the ramp's end near zero, 310k+ probes clean | 2-minute probes at 300-320k, whole-run p99 | |
+| H31 | Fixed cadence: a pass lasts at least N ms, phases read / DB / send | Opt's D, after #96; fewer kernel entries per request | unknown; earlier data says flush cost per answer rises with pass size | flags first, kernel entries and softirq per request | |
+| H32 | H11 now: poll plus single read instead of multishot recv | frees `async_poll` per idle socket | about -100 B per socket (30 MB at 300k), +1 SQE and +1 CQE per request | build it; memory and us per request | |
+| H33 | Small `SO_RCVBUF` / `SO_SNDBUF` on the listener | Opt's C; stops autotuning, caps queued memory | memory only under backlog; CPU small | A/B at 300k and 320k | |
+| H34 | `TCP_THIN_LINEAR_TIMEOUTS` on the listener | Opt's E; the rig may not lose packets, so no conclusion from the rig alone | none on the rig | one run, count retransmits | |
+| H35 | `TCP_DEFER_ACCEPT` (from H25) | handshake ACK and first request become one event | -1 of 40 us per connection, or more | cycles per request in the ramp | |
+| H36 | H28, WAL overwritten after a rewind | pwrite stayed 4.8 % with one pwrite per commit, so the cost is per page: allocation, zeroing, delayed allocation | -1 to -2 % | A/B; 320k for the eviction risk | |
+| H37 | One pwrite per commit (VFS, E116-E119, E126) | 2n syscalls per commit become 1 | measured: pwrite 5.15 % to 4.81 %, 24.95 to 24.35 us/req within noise | kept out of the push | killed for now |
+| H38 | Kernel bypass (AF_XDP) | Opt's B | | | dropped by Denis: needs CAP_NET_RAW; #231 |
+| H39 | `unshare(CLONE_FILES)` per worker | Opt's F | fixed-file slots don't use the fd table, and there's one vCPU to share | none needed | killed by reading: no fd table in use |
+| H40 | Skip send CQEs (H23) | one CQE per reply | 20-50 ns of 25 us (0.2 %), and it needs MSG_DONTWAIT, where a partial send reports -EAGAIN with its length lost | none needed | killed by arithmetic |
+
+Consilium 6 Nov (`consult` session 1106-165357-5619, DeepSeek Flash and Gemini 3 Pro, $0.023 DeepSeek plus Gemini's unlisted cost). Rejected, with why: drop rule 5 or denormalise (rules 3 and 5 forbid both); conntrack or tcp_mem as the wall (no conntrack on the scorer per LEADERBOARD; `tcp` pages stay under 2,000 here); batched `REGISTER_FILES_UPDATE` (we accept into direct slots, no such call); "13.8 % lookup isn't credible" (each chain step touches two cache lines of a cold socket, 9 steps average at 18 per bucket, about 1.7 us per packet, which fits). Taken: both models call H31, H32, H39 a waste, and both favour `TCP_DEFER_ACCEPT` and the small buffers, so those go first; measure a connection's cost before optimising it.
+
