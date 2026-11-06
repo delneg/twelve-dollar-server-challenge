@@ -96,3 +96,11 @@ Consilium 6 Nov (`consult` session 1106-165357-5619, DeepSeek Flash and Gemini 3
 | H41 | One cursor per feed position (20 posts, 20 authors), kept for the pass | stock `sqlite3BtreeTableMoveto` returns at once when the cursor is on the key; `post_view` is 6 % of CPU and nearly all of it is that search | -4 to -7 % CPU | 5-minute holds, interleaved | |
 | H42 | `glibc.malloc.hugetlb=1` from start.sh, huge pages for the rest of the heap | H29 worked on the page cache and slab | under 1 % | A/B | |
 
+
+Added 6 Nov after p3's push (structural round, Denis's reason as above):
+
+| id | idea | why | expected | how to test | state |
+|---|---|---|---|---|---|
+| H43 | Verify JWTs in groups of 8 with AVX2 SHA-256 | a software SHA block costs hundreds of cycles, 3-4 blocks per token | none | `bench/load.js` sends tokens only on like and create, 7.8 % of requests, about 350 cycles per request on average of 70k | killed by arithmetic |
+| H44 | Longer pass at load, `--bwait=2000` and 4000 (H24, H31 first step) | at 32k req/s a 1 ms wait ends on its timeout, so about 1,000 passes a second, each with enters on every ring, a read transaction and often a commit | -1 to -4 % CPU, fewer WAL frames per write | 2-minute probes at 300k, 320k; kernel entries and passes per second | |
+| H45 | Limit search of p3 on the rig: 320k, 330k, 340k | E121 was v20; CPU at 310k leaves 10 % | the real wall, CPU or memory: scorer's 1,323 MB at 280k extrapolates to 1,520 MB at 330k of about 1,800 usable, so maybe CPU | 2-minute probes | |
